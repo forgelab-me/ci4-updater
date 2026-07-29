@@ -15,7 +15,7 @@
     "authors": [
         {
             "name": "ForgeLab",
-            "email": "bertret.elie@gmail.com",
+            "email": "contact@forgelab.me",
             "homepage": "https://github.com/forgelab-me"
         }
     ],
@@ -24,7 +24,7 @@
         "source": "https://github.com/forgelab-me/ci4-updater"
     },
     "require": {
-        "php": "^8.1",
+        "php": "^8.2",
         "ext-zip": "*",
         "codeigniter4/framework": "^4.4"
     },

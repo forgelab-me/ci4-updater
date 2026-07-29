@@ -40,7 +40,7 @@ works too, see [Update server](#update-server).
 
 ## Requirements
 
-- PHP 8.1+
+- PHP 8.2+
 - `ext-zip`
 - CodeIgniter 4.4+
 
