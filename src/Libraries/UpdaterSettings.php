@@ -10,11 +10,11 @@ namespace Forgelabme\Ci4Updater\Libraries;
  * project out of the box.
  *
  * If your project already has something like an `AppSettingModel` /
- * `app_settings` table, subclass this (or write your own) and replace the
- * body of get()/set() — everything else only ever calls get($key, $default)
- * and set($key, $value).
+ * `app_settings` table, write your own class implementing
+ * SettingsInterface and point `Config\Updater::$settingsClass` at it —
+ * see the "Custom settings storage" section of the README.
  */
-class UpdaterSettings
+class UpdaterSettings implements SettingsInterface
 {
     private string $path;
 

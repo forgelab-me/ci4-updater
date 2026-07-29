@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Forgelabme\Ci4Updater\Config;
 
 use CodeIgniter\Config\BaseConfig;
+use Forgelabme\Ci4Updater\Libraries\UpdaterSettings;
 
 /**
  * Self-update system configuration — package defaults.
@@ -26,6 +27,17 @@ class Updater extends BaseConfig
     public const USER_AGENT = 'MyAppUpdater/1.0';
 
     /**
+     * Class used to persist update-server settings & last-update info.
+     * Must implement Forgelabme\Ci4Updater\Libraries\SettingsInterface.
+     * Override in your published app/Config/Updater.php to plug your own
+     * storage (e.g. an existing AppSettingModel / app_settings table)
+     * instead of the default JSON-file-in-writable/ implementation.
+     *
+     * @var class-string<\Forgelabme\Ci4Updater\Libraries\SettingsInterface>
+     */
+    public string $settingsClass = UpdaterSettings::class;
+
+    /**
      * Directories (relative to ROOTPATH) that are scanned for the manifest,
      * zipped into the release package, and replaced on update.
      * Standard CodeIgniter 4 layout → ['app', 'public'] is almost always correct.
@@ -33,10 +45,8 @@ class Updater extends BaseConfig
     public const SCAN_DIRS = ['app', 'public'];
 
     /**
-     * Keys used to persist update-server settings & last-update info.
-     * The default UpdaterSettings store is a simple JSON file in writable/ —
-     * see Libraries/UpdaterSettings.php if you'd rather plug your own
-     * (e.g. an existing AppSettingModel / app_settings table).
+     * Keys used with $settingsClass to persist update-server settings &
+     * last-update info.
      */
     public const SETTING_SERVER_URL   = 'update_server_url';
     public const SETTING_SERVER_TOKEN = 'update_server_token';

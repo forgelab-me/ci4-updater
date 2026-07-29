@@ -70,6 +70,11 @@ class Setup extends BaseCommand
                 public const DATE = '__DATE__';
 
                 public const USER_AGENT = 'MyAppUpdater/1.0';
+
+                // Already have a settings system (e.g. AppSettingModel)? Point this at
+                // your own class implementing Forgelabme\Ci4Updater\Libraries\SettingsInterface
+                // instead of the default JSON-file-in-writable/ store:
+                // public string $settingsClass = \App\Libraries\MySettingsAdapter::class;
             }
 
             PHP;

@@ -6,7 +6,7 @@ namespace Forgelabme\Ci4Updater\Controllers;
 
 use CodeIgniter\Controller;
 use Config\Updater;
-use Forgelabme\Ci4Updater\Libraries\UpdaterSettings;
+use Forgelabme\Ci4Updater\Libraries\SettingsInterface;
 use Forgelabme\Ci4Updater\Libraries\UpgradeManager;
 
 /**
@@ -100,9 +100,21 @@ class UpdateController extends Controller
         return redirect()->to('/admin/updates')->with('success', 'Cache cleared.');
     }
 
+    /**
+     * Resolves the settings store configured via Config\Updater::$settingsClass.
+     */
+    private function settings(): SettingsInterface
+    {
+        /** @var Updater $config */
+        $config = config('Updater');
+        $class  = $config->settingsClass;
+
+        return new $class();
+    }
+
     public function checkRemoteVersion(): \CodeIgniter\HTTP\ResponseInterface
     {
-        $settings  = new UpdaterSettings();
+        $settings  = $this->settings();
         $serverUrl = rtrim(trim((string) $settings->get(Updater::SETTING_SERVER_URL, '')), '/');
         $token     = trim((string) $settings->get(Updater::SETTING_SERVER_TOKEN, ''));
 
@@ -155,7 +167,7 @@ class UpdateController extends Controller
             return redirect()->to('/admin/updates')->with('error', 'Missing release data.');
         }
 
-        $settings = new UpdaterSettings();
+        $settings = $this->settings();
         $token    = trim((string) $settings->get(Updater::SETTING_SERVER_TOKEN, ''));
 
         $manager    = new UpgradeManager();
@@ -210,7 +222,7 @@ class UpdateController extends Controller
         session()->remove('upgrade_pending');
 
         // Record the event
-        $settings = new UpdaterSettings();
+        $settings = $this->settings();
         $settings->set(Updater::SETTING_LAST_VERSION, $state['version']);
         $settings->set(Updater::SETTING_LAST_DATE, date('Y-m-d H:i:s'));
 

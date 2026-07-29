@@ -197,10 +197,18 @@ There are two common ways to serve that:
 
 The package ships with `UpdaterSettings` (a JSON file in `writable/`) so it
 works with zero setup. If your project already has a settings system (e.g.
-an `AppSettingModel` / `app_settings` table), write your own class with the
-same `get(string $key, $default = null)` / `set(string $key, $value)`
-signature and swap it in — `UpgradeManager` and `UpdateController` never
-touch storage directly, everything goes through `UpdaterSettings`.
+an `AppSettingModel` / `app_settings` table), write your own class
+implementing `Forgelabme\Ci4Updater\Libraries\SettingsInterface`
+(`get(string $key, $default = null)` / `set(string $key, $value)`), then
+point `Config\Updater::$settingsClass` at it in your published
+`app/Config/Updater.php`:
+
+```php
+public string $settingsClass = \App\Libraries\MySettingsAdapter::class;
+```
+
+`UpdateController` resolves the settings class from config on every request
+— it never hardcodes `UpdaterSettings`, so nothing else needs to change.
 
 ## Releasing a new version
 

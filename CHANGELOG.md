@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.1.0] - 2026-07-29
+
+### Added
+
+- `Forgelabme\Ci4Updater\Libraries\SettingsInterface` and
+  `Config\Updater::$settingsClass`, so apps with their own settings system
+  (e.g. an `AppSettingModel` / `app_settings` table) can plug it in instead
+  of the default JSON-file store — see "Custom settings storage" in the
+  README.
+
+### Fixed
+
+- `UpdateController` no longer hardcodes `new UpdaterSettings()`; it
+  resolves the configured `$settingsClass` instead. Previously, the README
+  documented custom settings storage as supported, but there was no actual
+  way to override it.
+
 ## [1.0.0] - 2026-07-29
 
 ### Added
