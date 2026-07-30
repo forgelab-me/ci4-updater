@@ -197,14 +197,44 @@ There are two common ways to serve that:
 
 The package ships with `UpdaterSettings` (a JSON file in `writable/`) so it
 works with zero setup. If your project already has a settings system (e.g.
-an `AppSettingModel` / `app_settings` table), write your own class
-implementing `Forgelabme\Ci4Updater\Libraries\SettingsInterface`
-(`get(string $key, $default = null)` / `set(string $key, $value)`), then
-point `Config\Updater::$settingsClass` at it in your published
+an `AppSettingModel` / `app_settings` table), implement
+`Forgelabme\Ci4Updater\Libraries\SettingsInterface` on it — the two methods
+are `getSetting(string $key, $default = null)` and
+`setSetting(string $key, $value)`, named so that a `CodeIgniter\Model`
+subclass can implement them directly (`Model::set()` is already taken by the
+query builder):
+
+```php
+use CodeIgniter\Model;
+use Forgelabme\Ci4Updater\Libraries\SettingsInterface;
+
+class AppSettingModel extends Model implements SettingsInterface
+{
+    protected $table         = 'app_settings';
+    protected $primaryKey    = 'key';
+    protected $allowedFields = ['key', 'value'];
+
+    public function getSetting(string $key, mixed $default = null): mixed
+    {
+        $row = $this->find($key);
+
+        return $row ? $row['value'] : $default;
+    }
+
+    public function setSetting(string $key, mixed $value): void
+    {
+        $this->find($key)
+            ? $this->update($key, ['value' => $value])
+            : $this->insert(['key' => $key, 'value' => $value]);
+    }
+}
+```
+
+Then point `Config\Updater::$settingsClass` at it in your published
 `app/Config/Updater.php`:
 
 ```php
-public string $settingsClass = \App\Libraries\MySettingsAdapter::class;
+public string $settingsClass = \App\Models\AppSettingModel::class;
 ```
 
 `UpdateController` resolves the settings class from config on every request

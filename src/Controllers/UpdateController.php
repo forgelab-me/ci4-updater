@@ -115,8 +115,8 @@ class UpdateController extends Controller
     public function checkRemoteVersion(): \CodeIgniter\HTTP\ResponseInterface
     {
         $settings  = $this->settings();
-        $serverUrl = rtrim(trim((string) $settings->get(Updater::SETTING_SERVER_URL, '')), '/');
-        $token     = trim((string) $settings->get(Updater::SETTING_SERVER_TOKEN, ''));
+        $serverUrl = rtrim(trim((string) $settings->getSetting(Updater::SETTING_SERVER_URL, '')), '/');
+        $token     = trim((string) $settings->getSetting(Updater::SETTING_SERVER_TOKEN, ''));
 
         if ($serverUrl === '') {
             return $this->response->setJSON([
@@ -168,7 +168,7 @@ class UpdateController extends Controller
         }
 
         $settings = $this->settings();
-        $token    = trim((string) $settings->get(Updater::SETTING_SERVER_TOKEN, ''));
+        $token    = trim((string) $settings->getSetting(Updater::SETTING_SERVER_TOKEN, ''));
 
         $manager    = new UpgradeManager();
         $permIssues = $manager->checkPermissions();
@@ -223,8 +223,8 @@ class UpdateController extends Controller
 
         // Record the event
         $settings = $this->settings();
-        $settings->set(Updater::SETTING_LAST_VERSION, $state['version']);
-        $settings->set(Updater::SETTING_LAST_DATE, date('Y-m-d H:i:s'));
+        $settings->setSetting(Updater::SETTING_LAST_VERSION, $state['version']);
+        $settings->setSetting(Updater::SETTING_LAST_DATE, date('Y-m-d H:i:s'));
 
         $msg = sprintf(
             'v%s applied: %d added, %d modified. Backup: writable/backups/%s',

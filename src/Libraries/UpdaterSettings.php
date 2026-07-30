@@ -23,13 +23,13 @@ class UpdaterSettings implements SettingsInterface
         $this->path = WRITEPATH . 'updater_settings.json';
     }
 
-    public function get(string $key, mixed $default = null): mixed
+    public function getSetting(string $key, mixed $default = null): mixed
     {
         $data = $this->readAll();
         return $data[$key] ?? $default;
     }
 
-    public function set(string $key, mixed $value): void
+    public function setSetting(string $key, mixed $value): void
     {
         $data       = $this->readAll();
         $data[$key] = $value;
