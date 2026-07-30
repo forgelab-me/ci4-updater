@@ -81,6 +81,7 @@ class UpdateController extends Controller
             'cacheSize'      => $cacheSize,
             'cacheAdapter'   => basename(str_replace('\\', '/', get_class(service('cache')))),
             'upgradePending' => session()->get('upgrade_pending'),
+            'backups'        => (new UpgradeManager())->listBackups(),
         ]);
     }
 
@@ -200,7 +201,7 @@ class UpdateController extends Controller
         }
 
         $manager = new UpgradeManager();
-        $result  = $manager->apply($state['extractDir'], $state['diff'], $state['manifest'] ?? []);
+        $result  = $manager->apply($state['extractDir'], $state['diff'], $state['manifest'] ?? [], $state['version']);
 
         if (! $result['success']) {
             return redirect()->to('/admin/updates')->with('error', 'Apply failed: ' . ($result['error'] ?? ''));
@@ -248,5 +249,43 @@ class UpdateController extends Controller
             session()->remove('upgrade_pending');
         }
         return redirect()->to('/admin/updates')->with('success', 'Update cancelled, temporary files removed.');
+    }
+
+    /**
+     * Restores a backup taken before an update was applied.
+     */
+    public function rollback(): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $name = trim((string) ($this->request->getPost('backup') ?? ''));
+
+        $manager = new UpgradeManager();
+        $result  = $manager->restoreBackup($name);
+
+        if (! $result['success']) {
+            return redirect()->to('/admin/updates')->with('error', 'Rollback failed: ' . ($result['error'] ?? ''));
+        }
+
+        // Bring the database back in step with the restored code where possible.
+        $migrationError = null;
+        try {
+            service('migrations')->latest();
+        } catch (\Throwable $e) {
+            $migrationError = $e->getMessage();
+        }
+
+        service('cache')->clean();
+
+        $message = sprintf(
+            'Rolled back from %s: %d file(s) restored, %d added file(s) removed.',
+            $name,
+            $result['restored'],
+            $result['removed']
+        );
+
+        if ($migrationError !== null) {
+            $message .= ' — Warning: migrations: ' . $migrationError;
+        }
+
+        return redirect()->to('/admin/updates')->with('success', $message);
     }
 }

@@ -280,6 +280,103 @@
     </div>
 </div>
 
+<!-- Backups -->
+<?php if (! empty($backups)): ?>
+<div class="card mt-3">
+    <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <span><i class="bi bi-archive me-1"></i>Backups (<?= count($backups) ?>)</span>
+        <span class="text-secondary small">Taken automatically before each update is applied</span>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-dark table-sm mb-0">
+            <thead>
+                <tr>
+                    <th>Taken</th>
+                    <th>Update</th>
+                    <th>Files</th>
+                    <th>Size</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($backups as $b): ?>
+            <tr>
+                <td>
+                    <code class="text-secondary small"><?= esc(substr($b['name'], 7)) ?></code>
+                </td>
+                <td class="small">
+                    <?php if ($b['to_version']): ?>
+                        <span class="text-secondary"><?= esc($b['from_version'] ?? '?') ?></span>
+                        <i class="bi bi-arrow-right mx-1 text-secondary"></i>
+                        <span class="text-warning"><?= esc($b['to_version']) ?></span>
+                    <?php else: ?>
+                        <span class="text-secondary">—</span>
+                    <?php endif; ?>
+                </td>
+                <td class="text-secondary small">
+                    <?= (int) $b['files'] ?>
+                    <?php if ($b['migrations'] > 0): ?>
+                        <span class="badge bg-danger ms-1"
+                              title="That update shipped <?= (int) $b['migrations'] ?> migration file(s). Restoring reverts code only — the database is left as it is.">
+                            <i class="bi bi-database-exclamation me-1"></i><?= (int) $b['migrations'] ?> migration<?= $b['migrations'] > 1 ? 's' : '' ?>
+                        </span>
+                    <?php endif; ?>
+                </td>
+                <td class="text-secondary small">
+                    <?php if ($b['size'] >= 1_048_576): ?>
+                        <?= number_format($b['size'] / 1_048_576, 1) ?> MB
+                    <?php elseif ($b['size'] >= 1_024): ?>
+                        <?= number_format($b['size'] / 1_024, 1) ?> KB
+                    <?php else: ?>
+                        <?= (int) $b['size'] ?> B
+                    <?php endif; ?>
+                </td>
+                <td class="text-end">
+                    <?php
+                        // Spelled out at the point of no return, not just in the
+                        // footnote: a rollback reverts code, never the database.
+                        $warning = 'Restore this backup?\n\n'
+                            . 'Files changed by that update will be put back as they were'
+                            . ($b['has_manifest'] ? ', and files it added will be removed' : '')
+                            . '.\n\n';
+
+                        if ($b['migrations'] > 0) {
+                            $warning .= 'WARNING: that update shipped ' . (int) $b['migrations'] . ' migration file(s). '
+                                . 'Restoring does NOT roll the database back, so your schema will stay ahead '
+                                . 'of the restored code. Revert those migrations yourself if needed.\n\n';
+                        } else {
+                            $warning .= 'Database migrations are never reverted by a restore.\n\n';
+                        }
+
+                        $warning .= 'This cannot be undone.';
+                    ?>
+                    <form method="post" action="/admin/updates/rollback" class="d-inline">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="backup" value="<?= esc($b['name']) ?>">
+                        <button type="submit" class="btn btn-sm btn-outline-warning"
+                                onclick="return confirm('<?= $warning ?>')">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card-footer small">
+        <span class="text-warning"><i class="bi bi-database-exclamation me-1"></i><strong>Restoring reverts code, never the database.</strong></span>
+        <span class="text-secondary">
+            Migrations applied by an update stay applied, so a restored install can
+            end up running older code against a newer schema. Roll those migrations
+            back yourself when that matters.
+        </span>
+    </div>
+</div>
+<?php endif; ?>
+
 <?= $this->endSection() ?>
 
 <?= $this->section('scripts') ?>

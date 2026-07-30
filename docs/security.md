@@ -66,5 +66,12 @@ can no longer push code. See [Signing releases](signing.md).
 
 Every overwritten or deleted file is copied to
 `writable/backups/backup-<timestamp>/` before the apply step touches
-anything, and the panel reports the backup path on success or failure.
-`UpgradeManager::rollback($backupDir)` restores from there.
+anything, along with a `backup.json` recording what the update changed.
+The **Backups** section of the update panel restores any of them: files are
+put back as they were, and files the update added are removed.
+
+Backups are addressed by name, never by path, and the name is matched
+against `backup-YYYY-MM-DD-HHMMSS` before use — the value arrives from a
+form post.
+
+Database migrations are **not** reverted: rolling back restores code only.

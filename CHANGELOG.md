@@ -4,6 +4,47 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.3.0] - 2026-07-30
+
+### Added
+
+- **Rollback from the update panel.** `UpgradeManager::rollback()` existed but
+  was never reachable: the panel reported where the backup had been written and
+  left you to restore it over SSH. A **Backups** section now lists the backups
+  with what each one preceded, and restores any of them in one click.
+- `apply()` writes a `backup.json` alongside each backup, recording the version
+  it moved from and to and the exact diff it applied.
+- `listBackups()`, `restoreBackup()` and `isValidBackupName()`.
+- Backups whose update shipped migration files are flagged as such, in the
+  listing and in the confirmation prompt. Restoring reverts code but never the
+  database, so the panel now says how many migrations that specific update
+  brought in instead of leaving a generic caveat in a footnote.
+
+### Fixed
+
+- **A rollback used to leave the files an update had added.** It only put back
+  what it had saved — the modified and deleted files — so anything the update
+  introduced stayed behind. With the diff now recorded in `backup.json`, those
+  files are removed as well. Backups taken before this release still restore
+  what they hold; they simply can't undo additions.
+
+### Deprecated
+
+- `rollback(string $backupDir)` in favour of `restoreBackup(string $name)`,
+  which takes a backup name rather than a path and reports what it did. The old
+  method still works and delegates to the new one.
+
+### Upgrading
+
+The **Backups** section lives in the published view, so an app that ran
+`updater:setup` before this release won't show it until the view is refreshed:
+re-run `php spark updater:setup -f` (it overwrites `app/Views/admin/updates.php`,
+so re-apply any customisations) or copy the section across by hand. Everything
+else works without changes.
+
+Restoring a backup reverts **code only** — migrations already applied are not
+undone.
+
 ## [2.2.0] - 2026-07-30
 
 ### Added

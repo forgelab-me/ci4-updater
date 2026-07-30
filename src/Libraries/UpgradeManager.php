@@ -16,6 +16,9 @@ use Config\Updater;
  */
 class UpgradeManager
 {
+    /** Metadata written inside each backup directory, describing what the update changed. */
+    public const BACKUP_MANIFEST = 'backup.json';
+
     private array $scanDirs;
     private string $userAgent;
 
@@ -313,11 +316,12 @@ class UpgradeManager
      * Backs up modified/deleted files, then copies added/modified files from
      * extractDir into the live application root, and removes deleted ones.
      *
-     * @param array $newManifest Optional manifest with expected SHA-256 hashes for validation
+     * @param array       $newManifest Optional manifest with expected SHA-256 hashes for validation
+     * @param string|null $version     Version being applied, recorded in the backup manifest
      *
      * @return array{success: bool, backup_dir?: string, updated?: int, added?: int, modified?: int, deleted?: int, error?: string}
      */
-    public function apply(string $extractDir, array $diff, array $newManifest = []): array
+    public function apply(string $extractDir, array $diff, array $newManifest = [], ?string $version = null): array
     {
         // computeDiff() already filters these out, but apply() is public and the
         // diff travels through the session between requests — so every path is
@@ -336,6 +340,20 @@ class UpgradeManager
         $base      = ROOTPATH;
         $backupDir = WRITEPATH . 'backups/backup-' . date('Y-m-d-His') . '/';
         @mkdir($backupDir, 0755, true);
+
+        // Record what this update did. Without it a rollback can only put back
+        // the files it saved — it would have no way of knowing which files the
+        // update *added*, and would leave them behind.
+        file_put_contents($backupDir . self::BACKUP_MANIFEST, json_encode([
+            'created_at'   => gmdate('Y-m-d\TH:i:s\Z'),
+            'from_version' => Updater::VERSION,
+            'to_version'   => $version,
+            'diff'         => [
+                'added'    => array_values($diff['added']),
+                'modified' => array_values($diff['modified']),
+                'deleted'  => array_values($diff['deleted']),
+            ],
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 
         // Backup each file that will be overwritten or deleted
         foreach (array_merge($diff['modified'], $diff['deleted']) as $file) {
@@ -413,27 +431,183 @@ class UpgradeManager
     }
 
     /**
-     * Restores files from a backup directory created by apply().
+     * A backup is addressed by name, never by path: the name comes from a form
+     * post, and this pattern is what keeps it from pointing anywhere else.
      */
-    public function rollback(string $backupDir): bool
+    public function isValidBackupName(string $name): bool
     {
-        if (! is_dir($backupDir)) {
-            return false;
+        return preg_match('/\Abackup-\d{4}-\d{2}-\d{2}-\d{6}\z/', $name) === 1;
+    }
+
+    /**
+     * Lists the available backups, newest first.
+     *
+     * @return list<array{name: string, created_at: string|null, from_version: string|null, to_version: string|null, files: int, size: int, restorable: bool}>
+     */
+    public function listBackups(): array
+    {
+        $dir = WRITEPATH . 'backups/';
+        if (! is_dir($dir)) {
+            return [];
         }
-        $base = ROOTPATH;
+
+        $backups = [];
+
+        foreach ((array) scandir($dir) as $entry) {
+            if (! is_string($entry) || ! $this->isValidBackupName($entry) || ! is_dir($dir . $entry)) {
+                continue;
+            }
+
+            $meta  = $this->readBackupManifest($dir . $entry . '/');
+            $files = 0;
+            $size  = 0;
+
+            $iter = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($dir . $entry, \RecursiveDirectoryIterator::SKIP_DOTS)
+            );
+            foreach ($iter as $file) {
+                if ($file->isFile() && $file->getFilename() !== self::BACKUP_MANIFEST) {
+                    $files++;
+                    $size += $file->getSize();
+                }
+            }
+
+            $backups[] = [
+                'name'         => $entry,
+                'created_at'   => $meta['created_at'] ?? null,
+                'from_version' => $meta['from_version'] ?? null,
+                'to_version'   => $meta['to_version'] ?? null,
+                'files'        => $files,
+                'size'         => $size,
+                // Restoring reverts files, never the database. Knowing whether
+                // the update shipped migrations turns a vague caveat into a
+                // specific warning at the point of decision.
+                'migrations'   => $this->countMigrations($meta),
+                // Backups taken before this metadata existed can still be
+                // restored, they just can't undo added files.
+                'restorable'   => true,
+                'has_manifest' => $meta !== [],
+            ];
+        }
+
+        usort($backups, static fn ($a, $b) => strcmp($b['name'], $a['name']));
+
+        return $backups;
+    }
+
+    /**
+     * Restores a backup: puts back every file it saved and, when the backup
+     * records what the update added, removes those files too — otherwise a
+     * rollback would leave the new files sitting in the install.
+     *
+     * @return array{success: bool, restored?: int, removed?: int, error?: string}
+     */
+    public function restoreBackup(string $name): array
+    {
+        if (! $this->isValidBackupName($name)) {
+            return ['success' => false, 'error' => 'Invalid backup name.'];
+        }
+
+        $backupDir = WRITEPATH . 'backups/' . $name . '/';
+        if (! is_dir($backupDir)) {
+            return ['success' => false, 'error' => "Backup not found: {$name}"];
+        }
+
+        $base     = ROOTPATH;
+        $restored = 0;
+        $removed  = 0;
+
         $iter = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($backupDir, \RecursiveDirectoryIterator::SKIP_DOTS)
         );
-        foreach ($iter as $f) {
-            if (! $f->isFile()) {
+
+        foreach ($iter as $file) {
+            if (! $file->isFile() || $file->getFilename() === self::BACKUP_MANIFEST) {
                 continue;
             }
-            $rel = str_replace('\\', '/', substr($f->getPathname(), strlen($backupDir)));
+
+            $rel = str_replace('\\', '/', substr($file->getPathname(), strlen($backupDir)));
+
+            // The backup was written from manifest paths, so the same rule
+            // applies on the way back.
+            if (! $this->isSafeManifestPath($rel)) {
+                return ['success' => false, 'error' => "Refusing to restore an unsafe path: {$rel}"];
+            }
+
             $dst = $base . $rel;
             @mkdir(dirname($dst), 0755, true);
-            copy($f->getPathname(), $dst);
+            if (! copy($file->getPathname(), $dst)) {
+                return ['success' => false, 'error' => "Could not restore: {$rel}"];
+            }
+            $restored++;
         }
-        return true;
+
+        // Undo the files the update introduced.
+        $meta = $this->readBackupManifest($backupDir);
+        foreach ($meta['diff']['added'] ?? [] as $file) {
+            if (! is_string($file) || ! $this->isSafeManifestPath($file)) {
+                continue;
+            }
+
+            $path = $base . $file;
+            if (is_file($path) && @unlink($path)) {
+                $removed++;
+            }
+        }
+
+        if (function_exists('opcache_reset')) {
+            @opcache_reset();
+        }
+
+        return ['success' => true, 'restored' => $restored, 'removed' => $removed];
+    }
+
+    /**
+     * Restores files from a backup directory created by apply().
+     *
+     * @deprecated since 2.3.0 — use restoreBackup(), which also undoes added
+     *             files and reports what it did. Kept for existing integrations.
+     */
+    public function rollback(string $backupDir): bool
+    {
+        $name = basename(rtrim($backupDir, '/\\'));
+
+        return $this->restoreBackup($name)['success'];
+    }
+
+    /**
+     * How many migration files the backed-up update brought in. Rolling back
+     * restores code but never touches the database, so this is what tells an
+     * admin whether the schema will be left ahead of the restored code.
+     *
+     * @param array<string, mixed> $meta
+     */
+    private function countMigrations(array $meta): int
+    {
+        $files = array_merge(
+            $meta['diff']['added'] ?? [],
+            $meta['diff']['modified'] ?? []
+        );
+
+        return count(array_filter(
+            $files,
+            static fn ($file) => is_string($file) && preg_match('#/Database/Migrations/[^/]+\.php\z#i', $file) === 1
+        ));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function readBackupManifest(string $backupDir): array
+    {
+        $path = $backupDir . self::BACKUP_MANIFEST;
+        if (! is_file($path)) {
+            return [];
+        }
+
+        $data = json_decode((string) file_get_contents($path), true);
+
+        return is_array($data) ? $data : [];
     }
 
     /**

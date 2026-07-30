@@ -47,6 +47,7 @@ POST admin/updates/apply
 POST admin/updates/cancel
 POST admin/updates/migrate
 POST admin/updates/clear-cache
+POST admin/updates/rollback
 ```
 
 Both are overridable:
@@ -128,3 +129,14 @@ The web server user must be able to write to `app/`, `public/`, and
 `writable/`. `UpgradeManager::checkPermissions()` verifies this before
 anything is downloaded, and the panel surfaces any problem up front rather
 than failing halfway through an apply.
+
+## Backups and rollback
+
+Every update writes a backup to `writable/backups/backup-<timestamp>/` before
+touching anything, together with a `backup.json` recording the versions and the
+exact diff. The **Backups** section of the update panel lists them and restores
+any of them: saved files are put back, and files the update added are removed.
+
+A restore reverts **code only**. Migrations applied by the update are not rolled
+back, so the schema stays ahead of the restored code — the panel marks backups
+whose update contained migration files so the choice is an informed one.

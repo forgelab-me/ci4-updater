@@ -68,6 +68,12 @@ Cancelling at step 2 removes the temp directory and touches nothing.
   written into `public/`, for instance) would be wiped — keep that content
   outside `SCAN_DIRS`, e.g. under `writable/`.
 - A failed apply stops at the first error and reports the backup directory;
-  it does not auto-roll-back. Use `UpgradeManager::rollback($backupDir)`.
+  it does not roll back on its own. Restore it from the **Backups** section
+  of the update panel, which also removes the files the update added.
+- **A restore reverts code, never the database.** Migrations run by an
+  update stay applied, so a restored install can end up running older code
+  against a newer schema. The panel flags backups whose update shipped
+  migration files; revert those yourself when it matters. Writing migrations
+  whose `down()` actually works is what makes that possible.
 - Migrations run after files are in place, so a release can safely ship a
   migration that depends on new code.
