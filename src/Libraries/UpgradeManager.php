@@ -19,10 +19,61 @@ class UpgradeManager
     private array $scanDirs;
     private string $userAgent;
 
-    public function __construct()
+    /** @var list<string> PEM contents or paths; empty means signatures are not enforced. */
+    private array $publicKeys;
+
+    /**
+     * @param list<string>|null $publicKeys Overrides Config\Updater::$publicKeys (mainly for tests)
+     */
+    public function __construct(?array $publicKeys = null)
     {
-        $this->scanDirs  = Updater::SCAN_DIRS;
-        $this->userAgent = Updater::USER_AGENT;
+        $this->scanDirs   = Updater::SCAN_DIRS;
+        $this->userAgent  = Updater::USER_AGENT;
+        $this->publicKeys = $publicKeys ?? self::configuredPublicKeys();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function configuredPublicKeys(): array
+    {
+        if (function_exists('config')) {
+            $config = config('Updater');
+
+            if (is_object($config) && property_exists($config, 'publicKeys') && is_array($config->publicKeys)) {
+                return array_values(array_filter($config->publicKeys, static fn ($key) => is_string($key) && $key !== ''));
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * Enforces the signature policy: no configured key means signatures are
+     * ignored entirely; one or more keys makes a valid signature mandatory.
+     *
+     * @return string|null An error message, or null when the release is acceptable
+     */
+    private function checkSignature(string $manifestBytes, ?string $signature): ?string
+    {
+        if ($this->publicKeys === []) {
+            return null; // signing not in use for this install
+        }
+
+        if (! ReleaseSignature::isAvailable()) {
+            return 'This install requires signed releases, but the openssl extension is not available to verify them.';
+        }
+
+        if ($signature === null || trim($signature) === '') {
+            return 'This release is not signed, and this install only accepts signed releases. '
+                . 'Publish it with « php spark update:manifest --sign », or clear Config\\Updater::$publicKeys.';
+        }
+
+        if (! ReleaseSignature::verify($manifestBytes, $signature, $this->publicKeys)) {
+            return 'The release signature is invalid: it does not match the manifest, or it was made with a key this install does not trust.';
+        }
+
+        return null;
     }
 
     // -------------------------------------------------------------------------
@@ -118,18 +169,32 @@ class UpgradeManager
             }
             unlink($zipFile);
 
-            // Find manifest.json — bundled in zip takes priority
-            $newManifest = null;
+            // Find manifest.json — bundled in zip takes priority.
+            // The raw bytes are kept as-is: a signature covers exactly what was
+            // published, so re-encoding the decoded array would break it.
+            $newManifest   = null;
+            $manifestBytes = '';
+            $signature     = null;
+
             $manifestPath = $extractDir . 'manifest.json';
             if (file_exists($manifestPath)) {
-                $newManifest = json_decode(file_get_contents($manifestPath), true);
+                $manifestBytes = (string) file_get_contents($manifestPath);
+                $newManifest   = json_decode($manifestBytes, true);
+
+                if (file_exists($manifestPath . '.sig')) {
+                    $signature = (string) file_get_contents($manifestPath . '.sig');
+                }
             }
 
             // Fallback: download the manifest release asset
             if ((! $newManifest || empty($newManifest['files'])) && $manifestAssetUrl) {
                 $raw = $this->httpGet($manifestAssetUrl, $token);
                 if ($raw !== false) {
-                    $newManifest = json_decode($raw, true);
+                    $manifestBytes = $raw;
+                    $newManifest   = json_decode($raw, true);
+
+                    $rawSignature = $this->httpGet($manifestAssetUrl . '.sig', $token);
+                    $signature    = $rawSignature === false ? null : $rawSignature;
                 }
             }
 
@@ -140,6 +205,15 @@ class UpgradeManager
                     'error'   => "Manifest not found in the release.\n"
                         . "Generate it with « php spark update:manifest » and attach manifest.json to your GitHub release.",
                 ];
+            }
+
+            // Checked before anything else is inspected: an unverified release
+            // shouldn't get as far as being diffed against the live install.
+            $signatureError = $this->checkSignature($manifestBytes, $signature);
+            if ($signatureError !== null) {
+                $this->cleanup($tmpDir);
+
+                return ['success' => false, 'error' => $signatureError];
             }
 
             $diff = $this->computeDiff($this->buildCurrentManifest(), $newManifest['files']);
@@ -165,6 +239,7 @@ class UpgradeManager
                 'extractDir' => $extractDir,
                 'diff'       => $diff,
                 'manifest'   => $newManifest['files'],
+                'signed'     => $this->publicKeys !== [] && $signature !== null,
             ];
         } catch (\Throwable $e) {
             $this->cleanup($tmpDir);

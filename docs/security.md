@@ -57,6 +57,11 @@ The real security boundary is:
 
 Not the hash check.
 
+To stop trusting the server itself, sign your releases: with
+`Config\Updater::$publicKeys` set, a release is only applied if its manifest
+carries a signature made by a key you trust, so a compromised update server
+can no longer push code. See [Signing releases](signing.md).
+
 ## Recovery
 
 Every overwritten or deleted file is copied to

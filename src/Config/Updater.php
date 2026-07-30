@@ -45,6 +45,28 @@ class Updater extends BaseConfig
     public const SCAN_DIRS = ['app', 'public'];
 
     /**
+     * Public keys trusted to sign releases, as PEM contents or paths to PEM
+     * files (a relative path is resolved from ROOTPATH).
+     *
+     * Empty — the default — means signatures are ignored entirely and updates
+     * are trusted on the strength of the connection to the update server, as
+     * they were before this option existed.
+     *
+     * As soon as one key is listed, a valid signature becomes **mandatory**:
+     * an unsigned release, or one signed by an unknown key, is refused. That
+     * asymmetry is deliberate — a "verify only if a signature is present"
+     * policy would buy nothing, since whoever can tamper with a release can
+     * also drop the signature.
+     *
+     * Generate a pair with `php spark updater:keygen`, keep the private key
+     * offline (never on the update server), and list the public one here.
+     * Several keys may be listed at once to rotate without downtime.
+     *
+     * @var list<string>
+     */
+    public array $publicKeys = [];
+
+    /**
      * Keys used with $settingsClass to persist update-server settings &
      * last-update info.
      */

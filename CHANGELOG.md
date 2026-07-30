@@ -4,6 +4,38 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.2.0] - 2026-07-30
+
+### Added
+
+- **Optional release signing.** `Config\Updater::$publicKeys` is empty by
+  default and nothing changes: releases are trusted on the strength of the
+  connection to the update server, exactly as before. List one or more trusted
+  public keys and a valid signature becomes *mandatory* — an unsigned release,
+  or one signed by an unknown key, is refused.
+
+  The asymmetry is the point: verifying a signature only when one happens to be
+  present would buy nothing, since whoever can tamper with a release can also
+  drop the signature. Opting in is what closes the gap left by the SHA-256
+  manifest, which comes from the same server as the files it describes.
+
+  What is signed is the exact bytes of `manifest.json`; the manifest hashes
+  every file, so it covers the release transitively. The private key stays with
+  whoever cuts releases and never touches the update server, which becomes a
+  courier: compromising it allows withholding or replaying releases, not
+  publishing code.
+
+- `php spark updater:keygen` to generate the key pair, and
+  `php spark update:manifest --sign <key>` to sign a release. The signature
+  travels inside the archive as `manifest.json.sig`, so no change is needed on
+  the server side — a plain file server or GitHub Releases works unchanged.
+- `ReleaseSignature` (RS256 via `ext-openssl`; the envelope records its
+  algorithm so another can be added later). Several keys may be trusted at once
+  to allow rotation.
+- `prepare()` now reports `signed` in its result.
+
+See [docs/signing.md](docs/signing.md).
+
 ## [2.1.0] - 2026-07-30
 
 ### Security

@@ -21,6 +21,15 @@ Version comparison is semver-ordered, so `1.10.0` correctly beats `1.9.0`.
 php spark update:manifest
 ```
 
+If the apps you're updating require signed releases, pass the private key:
+
+```bash
+php spark update:manifest --sign /secure/path/release-signing.key
+```
+
+That adds `manifest.json.sig` to the archive. See
+[Signing releases](signing.md).
+
 This scans `SCAN_DIRS`, hashes every file with SHA-256, and writes:
 
 - `manifest.json` at the project root

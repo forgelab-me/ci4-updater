@@ -75,6 +75,11 @@ class Setup extends BaseCommand
                 // your own class implementing Forgelabme\Ci4Updater\Libraries\SettingsInterface
                 // instead of the default JSON-file-in-writable/ store:
                 // public string $settingsClass = \App\Libraries\MySettingsAdapter::class;
+
+                // List a public key here to require signed releases: from then on an
+                // unsigned release is refused. Generate a pair with
+                // `php spark updater:keygen` — see the package's docs/signing.md.
+                // public array $publicKeys = [WRITEPATH . 'keys/release-signing.pub'];
             }
 
             PHP;

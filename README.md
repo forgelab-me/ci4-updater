@@ -53,7 +53,10 @@ admin-only group or permission rather than "is logged in", and serve
 your application files.
 
 The manifest's SHA-256 check catches a corrupted download, **not** a
-malicious server. Details and examples: [Security](docs/security.md).
+malicious server — it comes from that same server. To close that gap, sign
+your releases: set `Config\Updater::$publicKeys` and unsigned releases are
+refused from then on. See [Signing releases](docs/signing.md) and
+[Security](docs/security.md).
 
 ## How it works
 
@@ -76,6 +79,8 @@ Step by step: [Releasing an update](docs/releasing.md).
 - [Update server](docs/update-server.md) — the `latest.json` contract, your
   own server or GitHub Releases
 - [Security](docs/security.md) — trust model, filters, recovery
+- [Signing releases](docs/signing.md) — optional signature verification,
+  off by default
 - [Releasing an update](docs/releasing.md) — release workflow and the full
   update pipeline
 
