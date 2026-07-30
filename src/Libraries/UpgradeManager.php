@@ -144,6 +144,20 @@ class UpgradeManager
 
             $diff = $this->computeDiff($this->buildCurrentManifest(), $newManifest['files']);
 
+            // A manifest listing paths outside the scanned directories is not
+            // something to work around — refuse the release entirely rather
+            // than apply the part of it that happens to look sane.
+            if ($diff['rejected'] !== []) {
+                $this->cleanup($tmpDir);
+
+                return [
+                    'success' => false,
+                    'error'   => 'The release manifest contains unsafe file paths and was rejected: '
+                        . implode(', ', array_slice($diff['rejected'], 0, 5))
+                        . (count($diff['rejected']) > 5 ? ' (…)' : ''),
+                ];
+            }
+
             return [
                 'success'    => true,
                 'version'    => $newManifest['version'] ?? $version,
@@ -159,13 +173,50 @@ class UpgradeManager
     }
 
     /**
+     * Whether a manifest key is a safe relative path to write under ROOTPATH.
+     *
+     * Manifest keys come from the update server, and apply() turns them into
+     * destination paths, so they are validated before being trusted: no
+     * traversal, no absolute paths, no drive letters, no NUL bytes, and the
+     * first segment must be one of the configured SCAN_DIRS.
+     */
+    public function isSafeManifestPath(string $path): bool
+    {
+        if ($path === '' || str_contains($path, "\0") || str_contains($path, '\\')) {
+            return false;
+        }
+
+        // Absolute (POSIX or Windows drive letter / UNC).
+        if (str_starts_with($path, '/') || preg_match('#\A[A-Za-z]:#', $path) === 1) {
+            return false;
+        }
+
+        $segments = explode('/', $path);
+        foreach ($segments as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..') {
+                return false;
+            }
+        }
+
+        return in_array($segments[0], $this->scanDirs, true) && count($segments) > 1;
+    }
+
+    /**
      * Computes a diff between two manifest file maps.
+     *
+     * Entries whose path isn't a safe relative path under a scanned directory
+     * are dropped rather than reported, so nothing downstream can act on them.
      */
     public function computeDiff(array $current, array $new): array
     {
-        $diff = ['added' => [], 'modified' => [], 'deleted' => [], 'unchanged' => 0];
+        $diff = ['added' => [], 'modified' => [], 'deleted' => [], 'unchanged' => 0, 'rejected' => []];
 
         foreach ($new as $file => $newHash) {
+            if (! $this->isSafeManifestPath((string) $file)) {
+                $diff['rejected'][] = (string) $file;
+                continue;
+            }
+
             if (! isset($current[$file])) {
                 $diff['added'][] = $file;
             } elseif ($current[$file] !== $newHash) {
@@ -193,6 +244,20 @@ class UpgradeManager
      */
     public function apply(string $extractDir, array $diff, array $newManifest = []): array
     {
+        // computeDiff() already filters these out, but apply() is public and the
+        // diff travels through the session between requests — so every path is
+        // re-checked here before anything is created, written or deleted.
+        foreach (['added', 'modified', 'deleted'] as $group) {
+            foreach ($diff[$group] ?? [] as $file) {
+                if (! $this->isSafeManifestPath((string) $file)) {
+                    return [
+                        'success' => false,
+                        'error'   => "Refusing to apply an unsafe path: {$file}",
+                    ];
+                }
+            }
+        }
+
         $base      = ROOTPATH;
         $backupDir = WRITEPATH . 'backups/backup-' . date('Y-m-d-His') . '/';
         @mkdir($backupDir, 0755, true);

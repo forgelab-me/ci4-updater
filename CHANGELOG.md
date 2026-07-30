@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.1.0] - 2026-07-30
+
+### Security
+
+- Manifest paths are now validated before use. Keys in a release manifest come
+  from the update server and become destination paths under `ROOTPATH`, so they
+  are checked to be relative paths inside a configured `SCAN_DIRS` entry —
+  rejecting traversal, absolute paths, Windows drive letters, backslashes and
+  NUL bytes. A release whose manifest contains such a path is refused as a
+  whole rather than partially applied, and `apply()` re-checks every path
+  because the diff crosses a request boundary in the session.
+
+  This closes a gap rather than a known exploit: the ZIP extractor already
+  skipped unsafe entries, so an unsafe manifest key had no extracted file to
+  copy. The guard no longer depends on that coincidence.
+
+### Added
+
+- `UpgradeManager::isSafeManifestPath()` — public, so integrators can apply the
+  same rule to their own tooling.
+- `computeDiff()` now returns a `rejected` key listing the entries it dropped.
+
 ## [2.0.0] - 2026-07-29
 
 ### Changed
