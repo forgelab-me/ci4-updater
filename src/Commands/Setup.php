@@ -26,7 +26,8 @@ class Setup extends BaseCommand
     protected $description = 'Publishes the config, admin view, and routes needed to use ci4-updater in this app.';
 
     protected $options = [
-        '-f' => 'Overwrite files that already exist without prompting.',
+        '-f'      => 'Overwrite files that already exist without prompting.',
+        '--views' => 'Also copy the panel into app/Views so you can edit it. Without this, it is rendered from the package and follows its updates.',
     ];
 
     private string $sourcePath;
@@ -36,16 +37,28 @@ class Setup extends BaseCommand
         $this->sourcePath = __DIR__ . '/../';
 
         $this->publishConfig();
-        $this->publishView();
+
+        // The view is no longer copied by default: rendering it from the
+        // package is what lets interface changes arrive with `composer update`.
+        if (CLI::getOption('views') !== null) {
+            $this->publishView();
+        }
+
         $this->wireRoutes();
 
         CLI::newLine();
         CLI::write('Next steps:', 'yellow');
         CLI::write('  1. Edit app/Config/Updater.php (VERSION, DATE, USER_AGENT).', 'white');
-        CLI::write('  2. Adapt app/Views/admin/updates.php to your layout.', 'white');
+        CLI::write('  2. Set $layout to the layout the panel should extend, and $appName.', 'white');
         CLI::write('  3. Set update_server_url (and optional token), e.g. via UpdaterSettings.', 'white');
         CLI::write('  4. Make sure the "admin" filter (or whatever you pass to routes()) protects these routes.', 'white');
         CLI::write('  5. Run `php spark update:manifest` before cutting each release.', 'white');
+
+        if (CLI::getOption('views') === null) {
+            CLI::newLine();
+            CLI::write('The panel is rendered from the package, so it stays up to date on its own.', 'white');
+            CLI::write('Run this command with --views only if you need to edit the markup itself.', 'white');
+        }
     }
 
     private function publishConfig(): void
@@ -70,6 +83,13 @@ class Setup extends BaseCommand
                 public const DATE = '__DATE__';
 
                 public const USER_AGENT = 'MyAppUpdater/1.0';
+
+                // The layout the update panel extends, and the name shown beside the
+                // version. The panel itself comes from the package unless you publish
+                // it with `php spark updater:setup --views`.
+                public string $layout = 'layout/main';
+
+                public ?string $appName = 'My App';
 
                 // Already have a settings system (e.g. AppSettingModel)? Point this at
                 // your own class implementing Forgelabme\Ci4Updater\Libraries\SettingsInterface

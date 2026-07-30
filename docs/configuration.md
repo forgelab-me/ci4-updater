@@ -14,6 +14,9 @@ it. It extends the package's base config, so you only override what you need.
 | `DATE` | Release date of the current version (`Y-m-d`). |
 | `USER_AGENT` | Sent when contacting the update server, e.g. `'MyGameUpdater/1.0'`. |
 | `SCAN_DIRS` | Directories making up a release — hashed, zipped, and replaced on update. `['app', 'public']` is correct for a standard CI4 layout. |
+| `$layout` | Layout the panel extends (default `layout/main`). |
+| `$appName` | Name shown beside the version in the panel. |
+| `$viewPath` | Pin a specific view. Null resolves automatically — see [The admin panel view](#the-admin-panel-view). |
 | `$settingsClass` | Where update-server settings are persisted. See [Custom settings storage](#custom-settings-storage). |
 | `$keepBackups` | How many backups to keep (default 5; `0` keeps every one). See [Backups and rollback](#backups-and-rollback). |
 | `$publicKeys` | Public keys trusted to sign releases. Empty by default; see [Signing releases](signing.md). |
@@ -21,20 +24,37 @@ it. It extends the package's base config, so you only override what you need.
 If your project already tracks its version somewhere else, point `VERSION`
 and `DATE` at that source instead of maintaining them twice.
 
-## Adapting the admin view
+## The admin panel view
 
-`updater:setup` copies the panel to `app/Views/admin/updates.php` — it's
-yours to edit, and it's never touched again.
+The panel is rendered **from the package**, so interface changes arrive with
+`composer update` rather than needing the view to be re-published by hand.
+Two settings are usually all it takes to fit it into an app:
 
-- It `extend`s `layout/main`. That layout must provide a `content` section,
-  optionally `head` and `scripts` sections, and should render flash messages
-  (`session()->getFlashdata('success')` / `'error'`).
-- Replace `"Your App"` with your app's name.
-- Remove or replace the commented-out `admin_subnav` include if you don't
-  have one.
+```php
+public string $layout  = 'layouts/main';  // whatever your admin layout is called
+public ?string $appName = 'My App';
+```
 
-The view uses Bootstrap 5 classes and Bootstrap Icons. If your admin area
-uses something else, the markup is plain HTML — restyle it freely.
+The layout must provide a `content` section, ideally `head` and `scripts`
+sections, and should render `success`/`error` flash messages. The markup uses
+Bootstrap 5 and Bootstrap Icons.
+
+### Taking the view over
+
+If you need to change the markup itself:
+
+```bash
+php spark updater:setup --views
+```
+
+That copies it to `app/Views/admin/updates.php`, which then **wins over the
+package's** — the trade-off being that later improvements to the panel won't
+reach you unless you port them. Delete the file to go back to the packaged
+version.
+
+Resolution order: `$viewPath` if set → `app/Views/admin/updates.php` if it
+exists → the package's view. Apps that published a view before this became
+configurable keep working untouched.
 
 ## Routes
 

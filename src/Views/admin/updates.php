@@ -1,15 +1,16 @@
-<?= $this->extend('layout/main') ?>
+<?= $this->extend($layout) ?>
 
 <?php /*
-── ADAPT THIS TO YOUR APP ─────────────────────────────────────────────────
- - This file was copied into app/Views/admin/updates.php by
-   `php spark updater:setup` — it's yours to edit, `composer update` never
-   touches it again.
- - 'layout/main' must provide a 'content' section and (optionally) a
-   'head'/'scripts' section, and render flash messages ('success'/'error').
- - Remove/replace the admin_subnav include below if you don't have one.
- - Replace "Your App" with your actual app name.
-───────────────────────────────────────────────────────────────────────── */ ?>
+The update panel, shipped by forgelab-me/ci4-updater.
+
+It is rendered straight from the package, so interface changes arrive with
+`composer update`. The layout it extends and the application name come from
+Config\Updater ($layout, $appName).
+
+To take it over, run `php spark updater:setup --views`: the file is copied to
+app/Views/admin/updates.php, which then wins over this one — at the cost of
+having to port future changes yourself.
+*/ ?>
 
 <?= $this->section('head') ?>
 <meta name="csrf-field" content="<?= csrf_token() ?>">
@@ -17,8 +18,6 @@
 <?= $this->endSection() ?>
 
 <?= $this->section('content') ?>
-
-<?php // If you have an admin subnav, add: $this->include('layout/admin_subnav') ?>
 
 <div class="d-flex align-items-center gap-2 mb-3">
     <i class="bi bi-arrow-repeat text-warning fs-4"></i>
@@ -130,7 +129,7 @@
                 <table class="table table-dark table-borderless table-sm mb-3">
                     <tbody>
                         <tr>
-                            <td class="text-secondary" style="width:45%">Your App</td>
+                            <td class="text-secondary" style="width:45%"><?= esc($appName) ?></td>
                             <td>
                                 <span class="badge bg-warning text-dark">v<?= esc($appVersion) ?></span>
                                 <small class="text-secondary ms-1"><?= esc($appDate) ?></small>

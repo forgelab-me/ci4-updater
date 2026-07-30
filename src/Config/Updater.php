@@ -45,6 +45,32 @@ class Updater extends BaseConfig
     public const SCAN_DIRS = ['app', 'public'];
 
     /**
+     * The layout the update panel extends.
+     *
+     * It must provide a `content` section, ideally `head` and `scripts`
+     * sections, and should render `success`/`error` flash messages.
+     */
+    public string $layout = 'layout/main';
+
+    /**
+     * Name shown next to the version in the panel. Null falls back to a
+     * generic label.
+     */
+    public ?string $appName = null;
+
+    /**
+     * View rendered by the panel.
+     *
+     * Null resolves automatically: an `app/Views/admin/updates.php` published
+     * by an earlier `updater:setup` wins, otherwise the package's own view is
+     * used — which is what lets interface changes arrive with `composer update`
+     * instead of needing the view to be re-published by hand.
+     *
+     * Set it explicitly to pin a view of your own.
+     */
+    public ?string $viewPath = null;
+
+    /**
      * How many backups to keep in writable/backups.
      *
      * Each applied update leaves one behind, so without a cap they accumulate

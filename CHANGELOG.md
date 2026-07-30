@@ -4,6 +4,38 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.5.0] - 2026-07-30
+
+### Changed
+
+- **The panel is now rendered from the package instead of being copied into
+  every app.** Publishing it made each interface change a manual merge, and —
+  since the view lives under `app/`, which updates replace — an update could
+  even overwrite the panel with an older copy of itself, silently removing
+  features.
+
+  Nothing breaks: an `app/Views/admin/updates.php` published by an earlier
+  `updater:setup` still wins. Resolution order is `$viewPath` if set, then the
+  app's view if present, then the package's.
+
+- `updater:setup` no longer copies the view by default. Pass `--views` to take
+  it over, at the cost of porting later changes yourself.
+
+### Added
+
+- `Config\Updater::$layout` (default `layout/main`) and `$appName`: the two
+  things that used to force a copy of the view are now configuration, so most
+  apps never need one.
+- `Config\Updater::$viewPath` to pin a specific view.
+
+### Upgrading
+
+Nothing to do. To start following the packaged panel instead of your copy,
+delete `app/Views/admin/updates.php` and set `$layout` and `$appName` in
+`app/Config/Updater.php` — worth doing if you never customised the markup,
+since it is what brings the Backups section and later additions in
+automatically.
+
 ## [2.4.0] - 2026-07-30
 
 ### Added

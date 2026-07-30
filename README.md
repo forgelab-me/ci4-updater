@@ -27,15 +27,18 @@ php spark updater:setup
 ```
 
 `updater:setup` is a one-time step per app. It publishes an editable
-`app/Config/Updater.php` and `app/Views/admin/updates.php`, and adds
-`service('updater')->routes($routes);` to `app/Config/Routes.php`. Re-running
-it is safe: existing files are only replaced after confirmation (or with
-`-f`), and the routes line is added once.
+`app/Config/Updater.php` and adds `service('updater')->routes($routes);` to
+`app/Config/Routes.php`. Re-running it is safe: existing files are only
+replaced after confirmation (or with `-f`), and the routes line is added once.
+
+The panel itself is rendered from the package, so its improvements arrive with
+`composer update`; point `$layout` at your admin layout and set `$appName`.
+Pass `--views` if you'd rather own the markup.
 
 Then, at minimum:
 
 1. Set `VERSION`, `DATE` and `USER_AGENT` in `app/Config/Updater.php`.
-2. Adapt `app/Views/admin/updates.php` to your layout.
+2. Set `$layout` to your admin layout and `$appName` in the same file.
 3. Make sure the route filter really restricts access — **read
    [Security](docs/security.md) first**.
 4. Point `update_server_url` at a feed — see

@@ -69,7 +69,12 @@ class UpdateController extends Controller
             }
         }
 
-        return view('admin/updates', [
+        /** @var Updater $config */
+        $config = config('Updater');
+
+        return view($this->resolveView($config), [
+            'layout'         => $config->layout,
+            'appName'        => $config->appName ?? 'Application',
             'title'          => 'Admin — Updates',
             'appVersion'     => Updater::VERSION,
             'appDate'        => Updater::DATE,
@@ -100,6 +105,27 @@ class UpdateController extends Controller
     {
         service('cache')->clean();
         return redirect()->to('/admin/updates')->with('success', 'Cache cleared.');
+    }
+
+    /**
+     * Which view the panel renders.
+     *
+     * A view published into the app by an earlier `updater:setup` keeps
+     * winning, so upgrading the package never overrides someone's customised
+     * panel. Everyone else gets the package's own view, and with it the
+     * interface changes that ship in new releases.
+     */
+    private function resolveView(Updater $config): string
+    {
+        if (is_string($config->viewPath) && $config->viewPath !== '') {
+            return $config->viewPath;
+        }
+
+        if (is_file(APPPATH . 'Views/admin/updates.php')) {
+            return 'admin/updates';
+        }
+
+        return '\Forgelabme\Ci4Updater\Views\admin\updates';
     }
 
     /**
