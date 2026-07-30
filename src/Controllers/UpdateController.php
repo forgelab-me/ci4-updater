@@ -82,6 +82,7 @@ class UpdateController extends Controller
             'cacheAdapter'   => basename(str_replace('\\', '/', get_class(service('cache')))),
             'upgradePending' => session()->get('upgrade_pending'),
             'backups'        => (new UpgradeManager())->listBackups(),
+            'keepBackups'    => config('Updater')->keepBackups ?? 0,
         ]);
     }
 
@@ -227,6 +228,10 @@ class UpdateController extends Controller
         $settings->setSetting(Updater::SETTING_LAST_VERSION, $state['version']);
         $settings->setSetting(Updater::SETTING_LAST_DATE, date('Y-m-d H:i:s'));
 
+        // Only ever pruned here: an update has just succeeded and left a fresh
+        // backup, so the oldest ones can go without losing the useful one.
+        $pruned = $manager->pruneBackups();
+
         $msg = sprintf(
             'v%s applied: %d added, %d modified. Backup: writable/backups/%s',
             $state['version'],
@@ -234,6 +239,14 @@ class UpdateController extends Controller
             $result['modified'],
             basename($result['backup_dir'])
         );
+
+        if ($pruned['deleted'] !== []) {
+            $msg .= sprintf(
+                ' — %d old backup(s) removed (%s freed)',
+                count($pruned['deleted']),
+                $this->formatBytes($pruned['freed'])
+            );
+        }
         if ($migrationError) {
             $msg .= ' — Warning: migrations: ' . $migrationError;
         }
@@ -249,6 +262,37 @@ class UpdateController extends Controller
             session()->remove('upgrade_pending');
         }
         return redirect()->to('/admin/updates')->with('success', 'Update cancelled, temporary files removed.');
+    }
+
+    /**
+     * Deletes a single backup.
+     */
+    public function deleteBackup(): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $name   = trim((string) ($this->request->getPost('backup') ?? ''));
+        $result = (new UpgradeManager())->deleteBackup($name);
+
+        if (! $result['success']) {
+            return redirect()->to('/admin/updates')->with('error', 'Could not delete backup: ' . ($result['error'] ?? ''));
+        }
+
+        return redirect()->to('/admin/updates')->with(
+            'success',
+            sprintf('Backup %s deleted (%s freed).', $name, $this->formatBytes($result['freed']))
+        );
+    }
+
+    private function formatBytes(int $bytes): string
+    {
+        if ($bytes >= 1_048_576) {
+            return number_format($bytes / 1_048_576, 1) . ' MB';
+        }
+
+        if ($bytes >= 1_024) {
+            return number_format($bytes / 1_024, 1) . ' KB';
+        }
+
+        return $bytes . ' B';
     }
 
     /**

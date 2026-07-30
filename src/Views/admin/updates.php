@@ -283,9 +283,22 @@
 <!-- Backups -->
 <?php if (! empty($backups)): ?>
 <div class="card mt-3">
+    <?php $backupTotal = array_sum(array_column($backups, 'size')); ?>
     <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
-        <span><i class="bi bi-archive me-1"></i>Backups (<?= count($backups) ?>)</span>
-        <span class="text-secondary small">Taken automatically before each update is applied</span>
+        <span>
+            <i class="bi bi-archive me-1"></i>Backups (<?= count($backups) ?>)
+            <span class="text-secondary small ms-1">
+                <?= $backupTotal >= 1_048_576 ? number_format($backupTotal / 1_048_576, 1) . ' MB' : number_format($backupTotal / 1_024, 1) . ' KB' ?> on disk
+            </span>
+        </span>
+        <span class="text-secondary small">
+            Taken automatically before each update
+            <?php if (! empty($keepBackups)): ?>
+                · oldest removed past <?= (int) $keepBackups ?> after a successful update
+            <?php else: ?>
+                · kept indefinitely
+            <?php endif; ?>
+        </span>
     </div>
 
     <div class="table-responsive">
@@ -357,6 +370,14 @@
                         <button type="submit" class="btn btn-sm btn-outline-warning"
                                 onclick="return confirm('<?= $warning ?>')">
                             <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
+                        </button>
+                    </form>
+                    <form method="post" action="/admin/updates/backups/delete" class="d-inline">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="backup" value="<?= esc($b['name']) ?>">
+                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete this backup"
+                                onclick="return confirm('Delete this backup?\n\nYou will no longer be able to restore the update it precedes.')">
+                            <i class="bi bi-trash3"></i>
                         </button>
                     </form>
                 </td>

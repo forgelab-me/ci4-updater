@@ -244,4 +244,100 @@ final class BackupRestoreTest extends TestCase
 
         self::assertSame(0, $this->manager->listBackups()[0]['migrations']);
     }
+
+    // -- Pruning ---------------------------------------------------------------
+
+    private function seedBackups(string ...$names): void
+    {
+        foreach ($names as $name) {
+            $this->write(WRITEPATH . 'backups/' . $name . '/app/File.php', str_repeat('x', 100));
+        }
+    }
+
+    public function testPruningKeepsTheNewestAndDropsTheRest(): void
+    {
+        $this->seedBackups(
+            'backup-2026-01-01-000000',
+            'backup-2026-02-01-000000',
+            'backup-2026-03-01-000000',
+            'backup-2026-04-01-000000'
+        );
+
+        $result = (new UpgradeManager(null, 2))->pruneBackups();
+
+        self::assertSame(
+            ['backup-2026-02-01-000000', 'backup-2026-01-01-000000'],
+            $result['deleted']
+        );
+        self::assertGreaterThan(0, $result['freed']);
+
+        // The two most recent survive — including the one a fresh update just wrote.
+        self::assertSame(
+            ['backup-2026-04-01-000000', 'backup-2026-03-01-000000'],
+            array_column((new UpgradeManager())->listBackups(), 'name')
+        );
+    }
+
+    public function testPruningIsANoOpWhenUnderTheLimit(): void
+    {
+        $this->seedBackups('backup-2026-01-01-000000', 'backup-2026-02-01-000000');
+
+        $result = (new UpgradeManager(null, 5))->pruneBackups();
+
+        self::assertSame([], $result['deleted']);
+        self::assertCount(2, (new UpgradeManager())->listBackups());
+    }
+
+    public function testZeroKeepsEverything(): void
+    {
+        $this->seedBackups(
+            'backup-2026-01-01-000000',
+            'backup-2026-02-01-000000',
+            'backup-2026-03-01-000000'
+        );
+
+        $result = (new UpgradeManager(null, 0))->pruneBackups();
+
+        self::assertSame([], $result['deleted']);
+        self::assertCount(3, (new UpgradeManager())->listBackups());
+    }
+
+    public function testPruningLeavesFilesOutsideBackupsAlone(): void
+    {
+        $this->seedBackups('backup-2026-01-01-000000', 'backup-2026-02-01-000000');
+        $this->write(WRITEPATH . 'backups/keep-me.txt', 'not a backup');
+        $this->write(ROOTPATH . 'app/Untouched.php', 'safe');
+
+        (new UpgradeManager(null, 1))->pruneBackups();
+
+        self::assertFileExists(WRITEPATH . 'backups/keep-me.txt');
+        self::assertFileExists(ROOTPATH . 'app/Untouched.php');
+    }
+
+    // -- Individual deletion ---------------------------------------------------
+
+    public function testDeletingABackupRemovesItAndReportsTheSpaceFreed(): void
+    {
+        $this->seedBackups('backup-2026-03-03-030303');
+
+        $result = (new UpgradeManager())->deleteBackup('backup-2026-03-03-030303');
+
+        self::assertTrue($result['success']);
+        self::assertSame(100, $result['freed']);
+        self::assertDirectoryDoesNotExist(WRITEPATH . 'backups/backup-2026-03-03-030303');
+    }
+
+    #[DataProvider('provideBadBackupNames')]
+    public function testDeletingRejectsNamesThatArentBackupNames(string $name): void
+    {
+        self::assertFalse((new UpgradeManager())->deleteBackup($name)['success']);
+    }
+
+    public function testDeletingAMissingBackupFails(): void
+    {
+        $result = (new UpgradeManager())->deleteBackup('backup-2026-09-09-090909');
+
+        self::assertFalse($result['success']);
+        self::assertStringContainsString('not found', $result['error']);
+    }
 }

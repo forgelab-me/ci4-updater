@@ -39,6 +39,7 @@ class Updater
             $routes->post('updates/apply', 'UpdateController::upgradeApply');
             $routes->post('updates/cancel', 'UpdateController::upgradeCancel');
             $routes->post('updates/rollback', 'UpdateController::rollback');
+            $routes->post('updates/backups/delete', 'UpdateController::deleteBackup');
         });
     }
 }

@@ -45,6 +45,18 @@ class Updater extends BaseConfig
     public const SCAN_DIRS = ['app', 'public'];
 
     /**
+     * How many backups to keep in writable/backups.
+     *
+     * Each applied update leaves one behind, so without a cap they accumulate
+     * for the lifetime of the install. Pruning runs after an update is applied
+     * successfully — never on a plain page view — and always keeps the newest
+     * ones, so the backup for the update you just ran is never the one deleted.
+     *
+     * Set to 0 to keep every backup and prune them yourself.
+     */
+    public int $keepBackups = 5;
+
+    /**
      * Public keys trusted to sign releases, as PEM contents or paths to PEM
      * files (a relative path is resolved from ROOTPATH).
      *

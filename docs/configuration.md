@@ -15,6 +15,8 @@ it. It extends the package's base config, so you only override what you need.
 | `USER_AGENT` | Sent when contacting the update server, e.g. `'MyGameUpdater/1.0'`. |
 | `SCAN_DIRS` | Directories making up a release — hashed, zipped, and replaced on update. `['app', 'public']` is correct for a standard CI4 layout. |
 | `$settingsClass` | Where update-server settings are persisted. See [Custom settings storage](#custom-settings-storage). |
+| `$keepBackups` | How many backups to keep (default 5; `0` keeps every one). See [Backups and rollback](#backups-and-rollback). |
+| `$publicKeys` | Public keys trusted to sign releases. Empty by default; see [Signing releases](signing.md). |
 
 If your project already tracks its version somewhere else, point `VERSION`
 and `DATE` at that source instead of maintaining them twice.
@@ -48,6 +50,7 @@ POST admin/updates/cancel
 POST admin/updates/migrate
 POST admin/updates/clear-cache
 POST admin/updates/rollback
+POST admin/updates/backups/delete
 ```
 
 Both are overridable:
@@ -140,3 +143,13 @@ any of them: saved files are put back, and files the update added are removed.
 A restore reverts **code only**. Migrations applied by the update are not rolled
 back, so the schema stays ahead of the restored code — the panel marks backups
 whose update contained migration files so the choice is an informed one.
+
+### Retention
+
+Backups pile up otherwise, so `$keepBackups` (default 5) caps how many are
+kept. Pruning runs **after an update is applied successfully** — never on a
+page view — and always removes the oldest first, so the backup written by the
+update you just ran is never the one deleted. Set it to `0` to keep everything
+and manage the directory yourself.
+
+Individual backups can also be deleted from the panel.

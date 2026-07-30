@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.4.0] - 2026-07-30
+
+### Added
+
+- **Backup retention.** Every applied update left a backup behind and nothing
+  ever removed them, so `writable/backups/` grew for the lifetime of the
+  install. `Config\Updater::$keepBackups` (default **5**) caps how many are
+  kept; set it to `0` to keep everything and manage the directory yourself.
+- Backups can be deleted individually from the panel, which also shows how much
+  disk the whole set occupies and states the retention in force.
+- `pruneBackups()` and `deleteBackup()`.
+
+### Upgrading
+
+**Pruning deletes data, so it is deliberately narrow:** it runs only after an
+update has been applied successfully — never on a page view — and always
+removes the oldest first, so the backup written by the update you just ran is
+never the one deleted.
+
+The default of 5 does mean that the first update applied after upgrading will
+prune older backups on an install that has accumulated more than that. Set
+`$keepBackups = 0` in `app/Config/Updater.php` beforehand if you would rather
+keep them all.
+
+The disk total, the retention notice and the delete buttons live in the
+published view, so refresh it (`php spark updater:setup -f`, re-applying any
+customisations) to see them. Pruning itself works regardless of the view.
+
 ## [2.3.0] - 2026-07-30
 
 ### Added

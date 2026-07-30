@@ -25,14 +25,32 @@ class UpgradeManager
     /** @var list<string> PEM contents or paths; empty means signatures are not enforced. */
     private array $publicKeys;
 
+    /** How many backups to retain; 0 keeps everything. */
+    private int $keepBackups;
+
     /**
-     * @param list<string>|null $publicKeys Overrides Config\Updater::$publicKeys (mainly for tests)
+     * @param list<string>|null $publicKeys  Overrides Config\Updater::$publicKeys (mainly for tests)
+     * @param int|null          $keepBackups Overrides Config\Updater::$keepBackups
      */
-    public function __construct(?array $publicKeys = null)
+    public function __construct(?array $publicKeys = null, ?int $keepBackups = null)
     {
-        $this->scanDirs   = Updater::SCAN_DIRS;
-        $this->userAgent  = Updater::USER_AGENT;
-        $this->publicKeys = $publicKeys ?? self::configuredPublicKeys();
+        $this->scanDirs    = Updater::SCAN_DIRS;
+        $this->userAgent   = Updater::USER_AGENT;
+        $this->publicKeys  = $publicKeys ?? self::configuredPublicKeys();
+        $this->keepBackups = $keepBackups ?? self::configuredInt('keepBackups', 5);
+    }
+
+    private static function configuredInt(string $property, int $default): int
+    {
+        if (function_exists('config')) {
+            $config = config('Updater');
+
+            if (is_object($config) && property_exists($config, $property) && is_int($config->{$property})) {
+                return $config->{$property};
+            }
+        }
+
+        return $default;
     }
 
     /**
@@ -560,6 +578,84 @@ class UpgradeManager
         }
 
         return ['success' => true, 'restored' => $restored, 'removed' => $removed];
+    }
+
+    /**
+     * Deletes a single backup.
+     *
+     * @return array{success: bool, freed?: int, error?: string}
+     */
+    public function deleteBackup(string $name): array
+    {
+        if (! $this->isValidBackupName($name)) {
+            return ['success' => false, 'error' => 'Invalid backup name.'];
+        }
+
+        $dir = WRITEPATH . 'backups/' . $name;
+        if (! is_dir($dir)) {
+            return ['success' => false, 'error' => "Backup not found: {$name}"];
+        }
+
+        $freed = $this->directorySize($dir);
+        $this->cleanup($dir . '/');
+
+        if (is_dir($dir)) {
+            return ['success' => false, 'error' => "Could not fully delete {$name}."];
+        }
+
+        return ['success' => true, 'freed' => $freed];
+    }
+
+    /**
+     * Removes the oldest backups beyond the configured retention.
+     *
+     * Deliberately called after an update has been applied, not on page views:
+     * pruning destroys data, so it happens at a moment the admin chose and
+     * where a fresh backup has just been written.
+     *
+     * @param int|null $keep Overrides Config\Updater::$keepBackups; 0 keeps everything
+     *
+     * @return array{deleted: list<string>, freed: int}
+     */
+    public function pruneBackups(?int $keep = null): array
+    {
+        $keep = $keep ?? $this->keepBackups;
+
+        if ($keep <= 0) {
+            return ['deleted' => [], 'freed' => 0];
+        }
+
+        // listBackups() is newest-first, so everything past the limit is older
+        // than what we keep — the backup from the update just applied is safe.
+        $stale   = array_slice($this->listBackups(), $keep);
+        $deleted = [];
+        $freed   = 0;
+
+        foreach ($stale as $backup) {
+            $result = $this->deleteBackup($backup['name']);
+            if ($result['success']) {
+                $deleted[] = $backup['name'];
+                $freed += $result['freed'];
+            }
+        }
+
+        return ['deleted' => $deleted, 'freed' => $freed];
+    }
+
+    private function directorySize(string $dir): int
+    {
+        $size = 0;
+        $iter = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS)
+        );
+
+        foreach ($iter as $file) {
+            if ($file->isFile()) {
+                $size += $file->getSize();
+            }
+        }
+
+        return $size;
     }
 
     /**

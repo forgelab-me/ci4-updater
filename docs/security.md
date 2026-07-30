@@ -75,3 +75,7 @@ against `backup-YYYY-MM-DD-HHMMSS` before use — the value arrives from a
 form post.
 
 Database migrations are **not** reverted: rolling back restores code only.
+
+Only the last `Config\Updater::$keepBackups` backups are kept (5 by default);
+older ones are pruned after a successful update. Raise it if you need to be
+able to reach further back.
