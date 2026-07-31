@@ -30,7 +30,19 @@ php spark update:manifest --sign /secure/path/release-signing.key
 That adds `manifest.json.sig` to the archive. See
 [Signing releases](signing.md).
 
-This scans `SCAN_DIRS`, hashes every file with SHA-256, and writes:
+To cover something other than `SCAN_DIRS` for one release — shipping `vendor/`
+when dependencies changed, for instance:
+
+```bash
+php spark update:manifest --roots app,public,vendor
+```
+
+The directories are recorded in the manifest, so the next release can go back
+to `app,public` without the one before it looking deleted. The receiving app
+must list any extra directory in `Config\Updater::$allowedRoots` or it refuses
+the release — see [Release scope](configuration.md#release-scope).
+
+This scans those directories, hashes every file with SHA-256, and writes:
 
 - `manifest.json` at the project root
 - `release_<version>_<timestamp>.zip`, with `manifest.json` embedded at the
@@ -64,9 +76,10 @@ Cancelling at step 2 removes the temp directory and touches nothing.
 ## Notes
 
 - Files present on the install but absent from the new manifest are
-  **deleted**. Anything user-generated that lives under `SCAN_DIRS` (uploads
-  written into `public/`, for instance) would be wiped — keep that content
-  outside `SCAN_DIRS`, e.g. under `writable/`.
+  **deleted** — within the release's own roots, and nowhere else. Anything
+  user-generated living under one of them (uploads written into `public/`,
+  for instance) would be wiped: keep that content outside, e.g. under
+  `writable/`.
 - A failed apply stops at the first error and reports the backup directory;
   it does not roll back on its own. Restore it from the **Backups** section
   of the update panel, which also removes the files the update added.

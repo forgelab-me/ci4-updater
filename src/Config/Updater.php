@@ -41,8 +41,33 @@ class Updater extends BaseConfig
      * Directories (relative to ROOTPATH) that are scanned for the manifest,
      * zipped into the release package, and replaced on update.
      * Standard CodeIgniter 4 layout → ['app', 'public'] is almost always correct.
+     *
+     * This is the *building* side: it decides what `update:manifest` puts in a
+     * release, and it is recorded in the manifest as that release's `roots`.
+     * What an installation accepts on the receiving end is $allowedRoots.
      */
     public const SCAN_DIRS = ['app', 'public'];
+
+    /**
+     * The complete list of top-level directories a release is allowed to
+     * declare. Empty means SCAN_DIRS — the default, and what every release
+     * built by this package has used so far.
+     *
+     * This is a policy, not a scope: the scope of an update is whatever its
+     * manifest declares, and a release naming a root that isn't listed here is
+     * refused whole rather than partially applied. Widen it deliberately, for
+     * instance to ['app', 'public', 'vendor'] if you ship dependencies.
+     *
+     * It guards against a misbuilt release, not against a hostile update
+     * server — that server picks the roots, so it can simply declare ones you
+     * allow. Signing is what defends against a compromised server.
+     *
+     * `writable` is refused whatever is listed here: it holds the backups a
+     * rollback needs.
+     *
+     * @var list<string>
+     */
+    public array $allowedRoots = [];
 
     /**
      * The layout the update panel extends.

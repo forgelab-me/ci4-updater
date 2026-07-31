@@ -64,7 +64,8 @@ refused from then on. See [Signing releases](docs/signing.md) and
 ## How it works
 
 1. Before cutting a release you run `php spark update:manifest`. It hashes
-   every file in `SCAN_DIRS` (SHA-256), writes `manifest.json`, and bundles a
+   every file in `SCAN_DIRS` (SHA-256), writes `manifest.json` — recording
+   which directories the release covers — and bundles a
    `release_X.Y.Z_*.zip` with the manifest embedded.
 2. You publish that ZIP and a `latest.json` describing it —
    [`ci4-update-server`](https://github.com/forgelab-me/ci4-update-server) is

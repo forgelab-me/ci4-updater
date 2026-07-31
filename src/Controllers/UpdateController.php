@@ -215,6 +215,9 @@ class UpdateController extends Controller
             'extractDir' => $result['extractDir'],
             'diff'       => $result['diff'],
             'manifest'   => $result['manifest'] ?? [],
+            // The scope this release declared. apply() re-validates it, but it
+            // has to travel: it is a property of the release, not of the app.
+            'roots'      => $result['roots'] ?? null,
         ]);
 
         return redirect()->to('/admin/updates');
@@ -228,7 +231,13 @@ class UpdateController extends Controller
         }
 
         $manager = new UpgradeManager();
-        $result  = $manager->apply($state['extractDir'], $state['diff'], $state['manifest'] ?? [], $state['version']);
+        $result  = $manager->apply(
+            $state['extractDir'],
+            $state['diff'],
+            $state['manifest'] ?? [],
+            $state['version'],
+            $state['roots'] ?? null,
+        );
 
         if (! $result['success']) {
             return redirect()->to('/admin/updates')->with('error', 'Apply failed: ' . ($result['error'] ?? ''));

@@ -7,6 +7,7 @@ namespace Forgelabme\Ci4Updater\Commands;
 use CodeIgniter\CLI\BaseCommand;
 use CodeIgniter\CLI\CLI;
 use Config\Updater;
+use Forgelabme\Ci4Updater\Libraries\ReleaseScope;
 use Forgelabme\Ci4Updater\Libraries\ReleaseSignature;
 
 /**
@@ -22,9 +23,10 @@ class GenerateManifest extends BaseCommand
     protected $group       = 'Update';
     protected $name        = 'update:manifest';
     protected $description = 'Generates manifest.json (SHA-256 hashes) and a release ZIP for the self-update system.';
-    protected $usage       = 'update:manifest [--sign <private-key>] [--passphrase <passphrase>]';
+    protected $usage       = 'update:manifest [--roots <a,b>] [--sign <private-key>] [--passphrase <passphrase>]';
 
     protected $options = [
+        '--roots'      => 'Comma-separated top-level directories this release covers. Defaults to Config\Updater::SCAN_DIRS.',
         '--sign'       => 'Sign the manifest with this private key (PEM path). Required by apps that set Config\Updater::$publicKeys.',
         '--passphrase' => 'Passphrase protecting the private key, if any.',
     ];
@@ -32,8 +34,18 @@ class GenerateManifest extends BaseCommand
     public function run(array $params): void
     {
         $base     = ROOTPATH;
-        $scanDirs = Updater::SCAN_DIRS;
+        $scanDirs = $this->resolveRoots();
         $files    = [];
+
+        if ($scanDirs === []) {
+            return;
+        }
+
+        // Only directories that actually yield files end up declared. A root
+        // named in the manifest with nothing under it is refused on the
+        // installing side — rightly, since it can't be told apart from a
+        // truncated manifest — so it must not be declared in the first place.
+        $covered = [];
 
         foreach ($scanDirs as $dir) {
             $path = $base . $dir;
@@ -42,7 +54,8 @@ class GenerateManifest extends BaseCommand
                 continue;
             }
 
-            $iter = new \RecursiveIteratorIterator(
+            $found = 0;
+            $iter  = new \RecursiveIteratorIterator(
                 new \RecursiveDirectoryIterator($path, \RecursiveDirectoryIterator::SKIP_DOTS)
             );
             foreach ($iter as $f) {
@@ -51,15 +64,36 @@ class GenerateManifest extends BaseCommand
                 }
                 $rel         = str_replace('\\', '/', substr($f->getPathname(), strlen($base)));
                 $files[$rel] = hash_file('sha256', $f->getPathname());
+                $found++;
             }
+
+            if ($found === 0) {
+                CLI::write("Skipping empty directory: $dir", 'yellow');
+                continue;
+            }
+
+            $covered[] = $dir;
         }
+
+        if ($covered === []) {
+            CLI::error('Nothing to release: none of the scanned directories contain any file.');
+
+            return;
+        }
+
+        $scanDirs = $covered;
 
         ksort($files);
 
+        // The scope travels with the release. Without it the installing app
+        // would fall back to its own configuration to decide what to scan, and
+        // a directory it scans but this release doesn't ship would read as
+        // entirely deleted.
         $manifest = [
             'version'      => Updater::VERSION,
             'date'         => Updater::DATE,
             'generated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'roots'        => $scanDirs,
             'files'        => $files,
         ];
 
@@ -92,6 +126,7 @@ class GenerateManifest extends BaseCommand
 
         CLI::write('manifest.json generated successfully.', 'green');
         CLI::write('Version : ' . $manifest['version'], 'white');
+        CLI::write('Covers  : ' . implode(', ', $scanDirs), 'white');
         CLI::write('Files   : ' . count($files), 'white');
         CLI::write('Manifest: ' . $manifestPath, 'white');
         CLI::write('Release : ' . $zipPath, 'white');
@@ -107,6 +142,47 @@ class GenerateManifest extends BaseCommand
         CLI::write('  1. Create a GitHub release for v' . $manifest['version'], 'white');
         CLI::write('  2. Attach ' . basename($zipPath) . ' as a release asset (it embeds manifest.json'
             . ($signaturePath !== null ? ' and its signature)' : ')'), 'white');
+    }
+
+    /**
+     * The directories this release covers: --roots when given, SCAN_DIRS
+     * otherwise. Returns an empty list — and reports why — when the request
+     * can't be honoured, so nothing half-scoped ever gets written.
+     *
+     * @return list<string>
+     */
+    private function resolveRoots(): array
+    {
+        $option = (string) (CLI::getOption('roots') ?: '');
+
+        if ($option === '') {
+            return ReleaseScope::normalize(Updater::SCAN_DIRS);
+        }
+
+        $roots   = ReleaseScope::normalize(array_map('trim', explode(',', $option)));
+        $invalid = ReleaseScope::invalidRoots($roots);
+
+        if ($roots === []) {
+            CLI::error('--roots is empty.');
+
+            return [];
+        }
+
+        if ($invalid !== []) {
+            CLI::error('Not usable as top-level directories: ' . implode(', ', $invalid));
+
+            return [];
+        }
+
+        foreach ($roots as $root) {
+            if (! is_dir(ROOTPATH . $root)) {
+                CLI::error("No such directory: {$root}");
+
+                return [];
+            }
+        }
+
+        return $roots;
     }
 
     private function createReleaseZip(string $zipPath, string $manifestPath, array $scanDirs, ?string $signaturePath = null): void

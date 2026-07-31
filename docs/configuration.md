@@ -13,7 +13,8 @@ it. It extends the package's base config, so you only override what you need.
 | `VERSION` | Current app version. Shown in the admin panel, written into the manifest, and compared against the update server's `latest.json`. Bump before every release. |
 | `DATE` | Release date of the current version (`Y-m-d`). |
 | `USER_AGENT` | Sent when contacting the update server, e.g. `'MyGameUpdater/1.0'`. |
-| `SCAN_DIRS` | Directories making up a release — hashed, zipped, and replaced on update. `['app', 'public']` is correct for a standard CI4 layout. |
+| `SCAN_DIRS` | Directories making up a release you *build* — hashed, zipped, and recorded in the manifest as that release's scope. `['app', 'public']` is correct for a standard CI4 layout. |
+| `$allowedRoots` | Directories a release you *receive* may cover. Empty means `SCAN_DIRS`. See [Release scope](#release-scope). |
 | `$layout` | Layout the panel extends (default `layout/main`). |
 | `$appName` | Name shown beside the version in the panel. |
 | `$viewPath` | Pin a specific view. Null resolves automatically — see [The admin panel view](#the-admin-panel-view). |
@@ -23,6 +24,46 @@ it. It extends the package's base config, so you only override what you need.
 
 If your project already tracks its version somewhere else, point `VERSION`
 and `DATE` at that source instead of maintaining them twice.
+
+## Release scope
+
+A release declares which top-level directories it covers, in its manifest:
+
+```json
+{ "version": "1.2.0", "roots": ["app", "public"], "files": { … } }
+```
+
+`update:manifest` writes it from `SCAN_DIRS`, so you normally never think
+about it. It matters because of what a *missing* manifest entry means: a file
+present locally but absent from the manifest is a **deletion**. That
+subtraction is only meaningful if both sides are talking about the same
+directories — which is why the scope travels with the release instead of
+being read from each installation's own configuration.
+
+Two consequences worth knowing:
+
+- A directory outside the release's roots is never scanned, so it can never be
+  seen as deleted. Shipping `vendor/` in one release and not the next is
+  therefore safe: the second one leaves it alone.
+- `$allowedRoots` is the receiving side. A release covering a directory you
+  haven't listed is refused **whole**, never partially applied — an install
+  that took half a release would report a version it isn't running.
+
+```php
+// app/Config/Updater.php — accept releases that ship dependencies
+public array $allowedRoots = ['app', 'public', 'vendor'];
+```
+
+`writable` is refused whatever you list: it holds the backups a rollback
+needs, and a release able to write there could destroy its own way back.
+
+`$allowedRoots` guards against a misbuilt release, not against a hostile
+update server — that server chooses the roots, so it can simply declare ones
+you accept. [Signing](signing.md) is what defends against a compromised
+server.
+
+Manifests generated before 2.6 carry no `roots` and are read with the local
+`SCAN_DIRS`, exactly as they were.
 
 ## The admin panel view
 

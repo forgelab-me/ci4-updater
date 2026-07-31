@@ -4,6 +4,67 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.6.0] - 2026-07-30
+
+### Fixed
+
+- **A release now declares the directories it covers, and a diff is computed
+  only within them.**
+
+  The scope of an update used to live in two places that nothing kept in step:
+  the `SCAN_DIRS` of the machine building the release, and the `SCAN_DIRS` of
+  the machine installing it. `computeDiff()` subtracted a manifest from a live
+  scan of the disk while assuming both described the same directories.
+
+  When they didn't, one direction was already safe — a release covering a
+  directory the installation doesn't scan was refused outright. The other was
+  not: a directory the installation scanned but the release didn't ship read
+  as *every file in it deleted*. Widening `SCAN_DIRS` to `['app', 'public',
+  'vendor']` and then applying any release built without `vendor/` would have
+  removed the autoloader, and with it the application, the admin panel, and
+  the rollback that lives in it.
+
+  `update:manifest` now records `roots` in the manifest, and the installing
+  side scans exactly those. A directory outside a release's scope is never
+  looked at, so it can never be seen as deleted.
+
+  Manifests without `roots` predate this release and are read with the local
+  `SCAN_DIRS`, exactly as before. Nothing to do when upgrading.
+
+### Added
+
+- `Config\Updater::$allowedRoots` — the directories a release is allowed to
+  cover. Empty (the default) means `SCAN_DIRS`. A release naming anything else
+  is refused **whole** rather than partly applied, since an install that took
+  half a release would report a version it isn't running.
+
+  It guards against a misbuilt release, not against a hostile update server:
+  that server picks the roots, so it can declare ones you accept. Signing is
+  what defends against a compromised server.
+
+- `update:manifest --roots app,public,vendor` — cover something other than
+  `SCAN_DIRS` for one release. Because scope now travels with each release,
+  the following one can go back to `app,public` without the previous one
+  appearing deleted. This is what makes "ship `vendor/` only when dependencies
+  changed" a safe workflow.
+
+- Backups record the scope of the update they undo, so a restore works in that
+  perimeter rather than in whatever is configured later. Without it, a release
+  that added files outside today's `SCAN_DIRS` would leave them behind — the
+  half-restore `backup.json` exists to prevent.
+
+### Security
+
+- Roots arrive from the update server now, where before the list was local and
+  trusted. They are validated as a result: a single directory name, no
+  traversal, no dot-directories, and `writable` refused whatever the policy
+  says — it holds the backups a rollback depends on.
+- A release declaring a directory but listing no file under it is refused. It
+  cannot be told apart from a truncated manifest, and read literally it means
+  "delete everything in there".
+- A restore that meets a recorded path outside its own scope now fails instead
+  of skipping the file silently.
+
 ## [2.5.0] - 2026-07-30
 
 ### Changed

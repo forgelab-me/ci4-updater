@@ -19,7 +19,12 @@ class UpgradeManager
     /** Metadata written inside each backup directory, describing what the update changed. */
     public const BACKUP_MANIFEST = 'backup.json';
 
+    /** @var list<string> Default scope, used when a manifest declares no roots of its own. */
     private array $scanDirs;
+
+    /** @var list<string> Policy: the roots a release is allowed to declare. */
+    private array $allowedRoots;
+
     private string $userAgent;
 
     /** @var list<string> PEM contents or paths; empty means signatures are not enforced. */
@@ -29,15 +34,38 @@ class UpgradeManager
     private int $keepBackups;
 
     /**
-     * @param list<string>|null $publicKeys  Overrides Config\Updater::$publicKeys (mainly for tests)
-     * @param int|null          $keepBackups Overrides Config\Updater::$keepBackups
+     * @param list<string>|null $publicKeys   Overrides Config\Updater::$publicKeys (mainly for tests)
+     * @param int|null          $keepBackups  Overrides Config\Updater::$keepBackups
+     * @param list<string>|null $allowedRoots Overrides Config\Updater::$allowedRoots
      */
-    public function __construct(?array $publicKeys = null, ?int $keepBackups = null)
+    public function __construct(?array $publicKeys = null, ?int $keepBackups = null, ?array $allowedRoots = null)
     {
-        $this->scanDirs    = Updater::SCAN_DIRS;
-        $this->userAgent   = Updater::USER_AGENT;
-        $this->publicKeys  = $publicKeys ?? self::configuredPublicKeys();
-        $this->keepBackups = $keepBackups ?? self::configuredInt('keepBackups', 5);
+        $this->scanDirs     = ReleaseScope::normalize(Updater::SCAN_DIRS);
+        $this->userAgent    = Updater::USER_AGENT;
+        $this->publicKeys   = $publicKeys ?? self::configuredPublicKeys();
+        $this->keepBackups  = $keepBackups ?? self::configuredInt('keepBackups', 5);
+        $this->allowedRoots = ReleaseScope::normalize($allowedRoots ?? self::configuredAllowedRoots());
+
+        // An empty policy means "whatever this app builds for itself".
+        if ($this->allowedRoots === []) {
+            $this->allowedRoots = $this->scanDirs;
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function configuredAllowedRoots(): array
+    {
+        if (function_exists('config')) {
+            $config = config('Updater');
+
+            if (is_object($config) && property_exists($config, 'allowedRoots') && is_array($config->allowedRoots)) {
+                return ReleaseScope::normalize($config->allowedRoots);
+            }
+        }
+
+        return [];
     }
 
     private static function configuredInt(string $property, int $default): int
@@ -105,12 +133,15 @@ class UpgradeManager
      * Builds a SHA-256 manifest of all currently installed files.
      * Returns ['relative/path' => 'sha256hex', ...]
      */
-    public function buildCurrentManifest(): array
+    /**
+     * @param list<string>|null $roots Defaults to the configured SCAN_DIRS
+     */
+    public function buildCurrentManifest(?array $roots = null): array
     {
         $base  = ROOTPATH;
         $files = [];
 
-        foreach ($this->scanDirs as $dir) {
+        foreach ($roots ?? $this->scanDirs as $dir) {
             $path = $base . $dir;
             if (! is_dir($path)) {
                 continue;
@@ -237,9 +268,20 @@ class UpgradeManager
                 return ['success' => false, 'error' => $signatureError];
             }
 
-            $diff = $this->computeDiff($this->buildCurrentManifest(), $newManifest['files']);
+            // The scope comes from the release, so it is validated before it is
+            // used to decide what gets scanned — and therefore what a missing
+            // manifest entry means.
+            $scopeError = $this->checkScope($newManifest);
+            if ($scopeError !== null) {
+                $this->cleanup($tmpDir);
 
-            // A manifest listing paths outside the scanned directories is not
+                return ['success' => false, 'error' => $scopeError];
+            }
+
+            $roots = $this->releaseRoots($newManifest);
+            $diff  = $this->computeDiff($this->buildCurrentManifest($roots), $newManifest['files'], $roots);
+
+            // A manifest listing paths outside the release's own roots is not
             // something to work around — refuse the release entirely rather
             // than apply the part of it that happens to look sane.
             if ($diff['rejected'] !== []) {
@@ -260,6 +302,7 @@ class UpgradeManager
                 'extractDir' => $extractDir,
                 'diff'       => $diff,
                 'manifest'   => $newManifest['files'],
+                'roots'      => $roots,
                 'signed'     => $this->publicKeys !== [] && $signature !== null,
             ];
         } catch (\Throwable $e) {
@@ -269,14 +312,99 @@ class UpgradeManager
     }
 
     /**
+     * The top-level directories a release covers.
+     *
+     * Taken from the manifest, so the same list describes what is scanned on
+     * disk and what the release contains. That symmetry is the point: the
+     * deletion side of a diff is "present locally, absent from the manifest",
+     * which is only meaningful if both sides speak about the same directories.
+     *
+     * A manifest without `roots` predates 2.6 and is read with the local
+     * SCAN_DIRS, exactly as before.
+     *
+     * @return list<string>
+     */
+    public function releaseRoots(array $manifest): array
+    {
+        $declared = $manifest['roots'] ?? null;
+
+        if (! is_array($declared)) {
+            return $this->scanDirs;
+        }
+
+        $declared = ReleaseScope::normalize($declared);
+
+        return $declared === [] ? $this->scanDirs : $declared;
+    }
+
+    /**
+     * Validates a release's declared scope, before any of it is acted on.
+     *
+     * @return string|null An error message, or null when the scope is usable
+     */
+    public function checkScope(array $manifest): ?string
+    {
+        if (! isset($manifest['roots'])) {
+            return null; // Pre-2.6 manifest: the local SCAN_DIRS apply.
+        }
+
+        if (! is_array($manifest['roots'])) {
+            return 'The release manifest declares a malformed "roots" entry.';
+        }
+
+        $roots = ReleaseScope::normalize($manifest['roots']);
+
+        if ($roots === []) {
+            return 'The release manifest declares an empty "roots" entry.';
+        }
+
+        // These names arrive from the update server and become directories
+        // written under ROOTPATH, so they are checked before anything else.
+        $invalid = ReleaseScope::invalidRoots($roots);
+        if ($invalid !== []) {
+            return 'The release manifest declares unusable directories: ' . implode(', ', $invalid);
+        }
+
+        $refused = array_values(array_diff($roots, $this->allowedRoots));
+        if ($refused !== []) {
+            return 'This release covers ' . implode(', ', $refused)
+                . ', which this installation does not accept. Add it to Config\Updater::$allowedRoots'
+                . ' if the release is meant to manage that directory, or decline the update.';
+        }
+
+        // A declared root with nothing under it means a truncated or misbuilt
+        // manifest. Left alone it would read as "every file here was deleted".
+        $files = is_array($manifest['files'] ?? null) ? $manifest['files'] : [];
+        foreach ($roots as $root) {
+            $found = false;
+
+            foreach (array_keys($files) as $path) {
+                if (str_starts_with((string) $path, $root . '/')) {
+                    $found = true;
+                    break;
+                }
+            }
+
+            if (! $found) {
+                return "The release manifest declares \"{$root}\" but lists no file under it."
+                    . ' Refusing it rather than treating the whole directory as deleted.';
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Whether a manifest key is a safe relative path to write under ROOTPATH.
      *
      * Manifest keys come from the update server, and apply() turns them into
      * destination paths, so they are validated before being trusted: no
      * traversal, no absolute paths, no drive letters, no NUL bytes, and the
-     * first segment must be one of the configured SCAN_DIRS.
+     * first segment must be one of the release's roots.
+     *
+     * @param list<string>|null $roots Defaults to the configured SCAN_DIRS
      */
-    public function isSafeManifestPath(string $path): bool
+    public function isSafeManifestPath(string $path, ?array $roots = null): bool
     {
         if ($path === '' || str_contains($path, "\0") || str_contains($path, '\\')) {
             return false;
@@ -294,21 +422,23 @@ class UpgradeManager
             }
         }
 
-        return in_array($segments[0], $this->scanDirs, true) && count($segments) > 1;
+        return in_array($segments[0], $roots ?? $this->scanDirs, true) && count($segments) > 1;
     }
 
     /**
      * Computes a diff between two manifest file maps.
      *
-     * Entries whose path isn't a safe relative path under a scanned directory
-     * are dropped rather than reported, so nothing downstream can act on them.
+     * Entries whose path isn't a safe relative path under one of the release's
+     * roots are collected in `rejected`, and the caller refuses the release.
+     *
+     * @param list<string>|null $roots Defaults to the configured SCAN_DIRS
      */
-    public function computeDiff(array $current, array $new): array
+    public function computeDiff(array $current, array $new, ?array $roots = null): array
     {
         $diff = ['added' => [], 'modified' => [], 'deleted' => [], 'unchanged' => 0, 'rejected' => []];
 
         foreach ($new as $file => $newHash) {
-            if (! $this->isSafeManifestPath((string) $file)) {
+            if (! $this->isSafeManifestPath((string) $file, $roots)) {
                 $diff['rejected'][] = (string) $file;
                 continue;
             }
@@ -334,19 +464,39 @@ class UpgradeManager
      * Backs up modified/deleted files, then copies added/modified files from
      * extractDir into the live application root, and removes deleted ones.
      *
-     * @param array       $newManifest Optional manifest with expected SHA-256 hashes for validation
-     * @param string|null $version     Version being applied, recorded in the backup manifest
+     * @param array             $newManifest Optional manifest with expected SHA-256 hashes for validation
+     * @param string|null       $version     Version being applied, recorded in the backup manifest
+     * @param list<string>|null $roots       The release's scope; defaults to the configured SCAN_DIRS
      *
      * @return array{success: bool, backup_dir?: string, updated?: int, added?: int, modified?: int, deleted?: int, error?: string}
      */
-    public function apply(string $extractDir, array $diff, array $newManifest = [], ?string $version = null): array
+    public function apply(string $extractDir, array $diff, array $newManifest = [], ?string $version = null, ?array $roots = null): array
     {
-        // computeDiff() already filters these out, but apply() is public and the
-        // diff travels through the session between requests — so every path is
-        // re-checked here before anything is created, written or deleted.
+        $roots = $roots === null ? $this->scanDirs : ReleaseScope::normalize($roots);
+
+        // prepare() validated all of this, but apply() is public and its
+        // arguments travel through the session between requests — so the scope
+        // and every path are re-checked before anything is written or deleted.
+        $invalid = ReleaseScope::invalidRoots($roots);
+        if ($invalid !== []) {
+            return [
+                'success' => false,
+                'error'   => 'Refusing to apply an unusable scope: ' . implode(', ', $invalid),
+            ];
+        }
+
+        $refused = array_values(array_diff($roots, $this->allowedRoots));
+        if ($refused !== []) {
+            return [
+                'success' => false,
+                'error'   => 'Refusing to apply a release covering ' . implode(', ', $refused)
+                    . ', which this installation does not accept.',
+            ];
+        }
+
         foreach (['added', 'modified', 'deleted'] as $group) {
             foreach ($diff[$group] ?? [] as $file) {
-                if (! $this->isSafeManifestPath((string) $file)) {
+                if (! $this->isSafeManifestPath((string) $file, $roots)) {
                     return [
                         'success' => false,
                         'error'   => "Refusing to apply an unsafe path: {$file}",
@@ -362,10 +512,15 @@ class UpgradeManager
         // Record what this update did. Without it a rollback can only put back
         // the files it saved — it would have no way of knowing which files the
         // update *added*, and would leave them behind.
+        //
+        // The scope is recorded too: a restore has to work in the same
+        // perimeter as the update it undoes, which is not necessarily the one
+        // configured today.
         file_put_contents($backupDir . self::BACKUP_MANIFEST, json_encode([
             'created_at'   => gmdate('Y-m-d\TH:i:s\Z'),
             'from_version' => Updater::VERSION,
             'to_version'   => $version,
+            'roots'        => $roots,
             'diff'         => [
                 'added'    => array_values($diff['added']),
                 'modified' => array_values($diff['modified']),
@@ -535,6 +690,18 @@ class UpgradeManager
         $restored = 0;
         $removed  = 0;
 
+        // The perimeter this update ran in, which is not necessarily the one
+        // configured now: a release may have covered directories the current
+        // SCAN_DIRS no longer mention. Backups written before 2.6 carry no
+        // roots and fall back to it.
+        $meta  = $this->readBackupManifest($backupDir);
+        $roots = $this->releaseRoots($meta);
+
+        $invalid = ReleaseScope::invalidRoots($roots);
+        if ($invalid !== []) {
+            return ['success' => false, 'error' => 'This backup records an unusable scope: ' . implode(', ', $invalid)];
+        }
+
         $iter = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($backupDir, \RecursiveDirectoryIterator::SKIP_DOTS)
         );
@@ -548,7 +715,7 @@ class UpgradeManager
 
             // The backup was written from manifest paths, so the same rule
             // applies on the way back.
-            if (! $this->isSafeManifestPath($rel)) {
+            if (! $this->isSafeManifestPath($rel, $roots)) {
                 return ['success' => false, 'error' => "Refusing to restore an unsafe path: {$rel}"];
             }
 
@@ -560,11 +727,16 @@ class UpgradeManager
             $restored++;
         }
 
-        // Undo the files the update introduced.
-        $meta = $this->readBackupManifest($backupDir);
+        // Undo the files the update introduced. A path that no longer passes
+        // validation is fatal rather than skipped: silently leaving a file
+        // behind is the exact half-restore backup.json exists to prevent.
         foreach ($meta['diff']['added'] ?? [] as $file) {
-            if (! is_string($file) || ! $this->isSafeManifestPath($file)) {
-                continue;
+            if (! is_string($file) || ! $this->isSafeManifestPath($file, $roots)) {
+                return [
+                    'success' => false,
+                    'error'   => 'This backup records a file outside its own scope, so restoring it '
+                        . 'would leave the update partly in place: ' . (is_string($file) ? $file : gettype($file)),
+                ];
             }
 
             $path = $base . $file;

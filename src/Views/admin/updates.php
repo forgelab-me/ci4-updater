@@ -69,6 +69,16 @@ having to port future changes yourself.
             </span>
         </div>
 
+        <?php if (! empty($upgradePending['roots'])): ?>
+            <?php // Deletions are computed inside these directories and nowhere
+                  // else, so what is covered is part of reading the counts above. ?>
+            <p class="text-secondary small mb-3">
+                <i class="bi bi-folder me-1"></i>
+                Covers <?= esc(implode(', ', $upgradePending['roots'])) ?> —
+                anything outside is left untouched.
+            </p>
+        <?php endif; ?>
+
         <!-- File list (collapsible) -->
         <?php if ($totalChanges > 0): ?>
         <details <?= $totalChanges <= 15 ? 'open' : '' ?> class="mb-3">
