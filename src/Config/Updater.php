@@ -70,6 +70,27 @@ class Updater extends BaseConfig
     public array $allowedRoots = [];
 
     /**
+     * Roots replaced by swapping the whole directory rather than file by file.
+     *
+     * `app/` and `public/` are fine written in place: they are small, and the
+     * classes in them are already loaded by the time an update runs.
+     * `vendor/` is not. It is autoloaded lazily throughout a request, so a
+     * file-by-file rewrite leaves a mixed tree visible to every concurrent
+     * request for as long as the copy takes, and a rewrite interrupted halfway
+     * leaves no autoloader at all — no application, no panel, no rollback.
+     *
+     * A swapped root is staged next to the live one, verified in full, and
+     * then put in place with two renames. The old tree is not copied into the
+     * backup, it is renamed aside — instant, and it doesn't need twice the
+     * disk on a host where quota is the binding constraint.
+     *
+     * Listing a root here does nothing until a release actually covers it.
+     *
+     * @var list<string>
+     */
+    public array $swapRoots = ['vendor'];
+
+    /**
      * The layout the update panel extends.
      *
      * It must provide a `content` section, ideally `head` and `scripts`

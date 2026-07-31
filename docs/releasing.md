@@ -42,6 +42,18 @@ to `app,public` without the one before it looking deleted. The receiving app
 must list any extra directory in `Config\Updater::$allowedRoots` or it refuses
 the release — see [Release scope](configuration.md#release-scope).
 
+Build `vendor/` from the lock file before generating the manifest, so what you
+ship is what you tested:
+
+```bash
+composer install --no-dev --optimize-autoloader
+php spark update:manifest --roots app,public,vendor
+```
+
+The installed app replaces `vendor/` by swapping the directory rather than
+rewriting it file by file — see [Shipping vendor/](configuration.md#shipping-vendor)
+for why that matters and what it costs.
+
 This scans those directories, hashes every file with SHA-256, and writes:
 
 - `manifest.json` at the project root
@@ -87,6 +99,45 @@ Cancelling at step 2 removes the temp directory and touches nothing.
   update stay applied, so a restored install can end up running older code
   against a newer schema. The panel flags backups whose update shipped
   migration files; revert those yourself when it matters. Writing migrations
-  whose `down()` actually works is what makes that possible.
-- Migrations run after files are in place, so a release can safely ship a
-  migration that depends on new code.
+  whose `down()` actually works is what makes that possible, and
+  [how you shape them](#writing-migrations-you-can-roll-back-from) decides
+  whether a rollback is usable at all.
+- Migrations run after the new files are in place and before any swapped
+  directory goes in, so a release can safely ship a migration that depends on
+  new application code. A migration that needs a brand-new *dependency* is the
+  exception — `vendor/` is swapped after — so avoid that pairing in one
+  release.
+
+## Writing migrations you can roll back from
+
+A restore puts the code back and never the database, so the shape of a
+migration decides whether the rollback is a real safety net or a broken app.
+
+**Additive** — a new column, a new table, an index. Roll back and the old code
+runs against a schema carrying something extra. Harmless in nearly every case:
+the rollback works.
+
+**Destructive** — dropping a column or table the previous code still reads.
+Roll back and that code needs something that is gone. It doesn't boot. The
+rollback, the very thing you were counting on, hands you a broken install.
+
+Keep each release reversible by separating the two, one version apart:
+
+- **v2** adds `users.email_verified_at`, stops reading `users.verified`, and
+  leaves the old column alone.
+- **v3** drops `users.verified`.
+
+Rolling back v3 restores v2's code, which no longer reads that column.
+Rolling back v2 restores v1's code, and the column it needs is still there.
+Both are safe, because no single release both removes a column and is the
+release that stopped using it.
+
+Two caveats worth stating plainly:
+
+- It only holds one step at a time. Going straight from v1 to v3 and then
+  rolling back leaves v1's code without a column v3 removed.
+- The panel counts the migration files an update shipped; it does not tell an
+  `addColumn` from a `dropColumn`. Working that out would mean reading the
+  migrations themselves — Forge calls, raw SQL, conditionals — and a wrong
+  answer there is worse than none. Knowing which of your own migrations are
+  destructive stays your call.

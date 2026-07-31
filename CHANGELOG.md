@@ -4,6 +4,83 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.7.0] - 2026-07-30
+
+Builds on 2.6, which made a release declare the directories it covers. That
+made shipping `vendor/` safe to *reason* about; this release makes it safe to
+*write*.
+
+### Added
+
+- **`vendor/` can be shipped in a release**, built on your machine from the
+  lock file and installed without the target host needing Composer, network
+  access to Packagist, or memory for dependency resolution:
+
+  ```bash
+  composer install --no-dev --optimize-autoloader
+  php spark update:manifest --roots app,public,vendor
+  ```
+
+  The receiving app needs `Config\Updater::$allowedRoots` to list `vendor`.
+
+- **`Config\Updater::$swapRoots`** (default `['vendor']`) — roots replaced by
+  swapping the whole directory instead of writing it file by file.
+
+  `app/` and `public/` are fine written in place. `vendor/` is not: it is
+  autoloaded lazily throughout a request, so a file-by-file rewrite exposes a
+  mixed tree to every concurrent request for as long as the copy takes, and a
+  rewrite interrupted halfway leaves no autoloader — no application, no panel,
+  no rollback to get back from it.
+
+  A swapped root is staged beside the live one, verified file by file against
+  the manifest, then put in place with two renames. The only moment the
+  directory is absent is between them; POSIX offers no atomic directory
+  exchange, so that window can't be closed, but it is microseconds rather than
+  the seconds or minutes of an in-place rewrite.
+
+  The setting is inert until a release actually covers one of its roots.
+
+### Changed
+
+- **The previous tree of a swapped root is renamed aside, not copied.** It
+  lands in `.updater-swap/<backup-name>/` next to the application rather than
+  in `writable/backups/`: renaming is instant and needs no second copy of a
+  dependency tree, which matters most on exactly the hosts this package
+  targets. `rename()` only works within one filesystem, and `writable/` is a
+  separate mount often enough — a Docker volume, for one — that putting it
+  there would have been a trap.
+
+  Rollback renames it back. Deleting or pruning a backup removes it, and the
+  panel counts it in that backup's size.
+
+  Add `/.updater-swap/` to your app's `.gitignore`.
+
+- **Migrations now run between the two halves of an update** — after the new
+  application code is written, before any directory is swapped. It is the only
+  moment where the code on disk is new and the dependency tree in memory still
+  matches the one on disk.
+
+  Running them after a swap would resolve classes through autoload maps
+  describing a tree that moved. Deferring them to a later request would be
+  worse: the full boot, filters and user model included, would run new code
+  against the old schema, and a 500 there would take the panel — and the
+  rollback with it. `apply()` takes a `$beforeSwap` callback for this;
+  everything still happens in one request.
+
+- A swap is refused outright without a manifest, or when the manifest lists no
+  file under a declared root — staging an empty directory and swapping it in
+  would delete the dependency tree in one move.
+
+- The swapped tree contains exactly what the manifest declares, not whatever
+  the archive happens to hold, which is the rule the per-file path already
+  followed.
+
+### Upgrading
+
+Nothing to do. `$swapRoots` defaults to `['vendor']` but does nothing until a
+release covers `vendor/`, and no release does unless you build one with
+`--roots`.
+
 ## [2.6.0] - 2026-07-30
 
 ### Fixed

@@ -15,6 +15,7 @@ it. It extends the package's base config, so you only override what you need.
 | `USER_AGENT` | Sent when contacting the update server, e.g. `'MyGameUpdater/1.0'`. |
 | `SCAN_DIRS` | Directories making up a release you *build* — hashed, zipped, and recorded in the manifest as that release's scope. `['app', 'public']` is correct for a standard CI4 layout. |
 | `$allowedRoots` | Directories a release you *receive* may cover. Empty means `SCAN_DIRS`. See [Release scope](#release-scope). |
+| `$swapRoots` | Directories replaced as a whole rather than file by file (default `['vendor']`). Inert until a release covers one. See [Shipping vendor/](#shipping-vendor). |
 | `$layout` | Layout the panel extends (default `layout/main`). |
 | `$appName` | Name shown beside the version in the panel. |
 | `$viewPath` | Pin a specific view. Null resolves automatically — see [The admin panel view](#the-admin-panel-view). |
@@ -64,6 +65,55 @@ server.
 
 Manifests generated before 2.6 carry no `roots` and are read with the local
 `SCAN_DIRS`, exactly as they were.
+
+## Shipping vendor/
+
+Leaving `vendor/` out of releases is a good default: dependencies change
+rarely, and including them makes every archive tens of megabytes heavier.
+When they *do* change, you can ship them:
+
+```bash
+php spark update:manifest --roots app,public,vendor
+```
+
+```php
+// app/Config/Updater.php, on the installed side
+public array $allowedRoots = ['app', 'public', 'vendor'];
+```
+
+The receiving app builds the dependency tree from its manifest, verifies every
+file, and then puts it in place with two renames — it does not rewrite
+`vendor/` file by file. That distinction is the whole feature:
+
+- `vendor/` is autoloaded lazily throughout a request. A file-by-file rewrite
+  leaves a mixed tree visible to every concurrent request for as long as the
+  copy takes.
+- A rewrite interrupted halfway leaves no working autoloader — which means no
+  application, no admin panel, and no rollback to get back from it.
+
+The only moment the directory does not exist is between the two renames.
+POSIX has no atomic directory exchange, so that window can't be closed, but it
+is microseconds against the seconds or minutes of an in-place rewrite.
+
+The previous tree is not copied into `writable/backups/`; it is renamed aside
+into `.updater-swap/<backup-name>/`, next to the application. Instant, and it
+doesn't need twice the disk on a host where quota is what bites first. A
+rollback renames it back, and deleting or pruning the backup removes it.
+
+Add `/.updater-swap/` to your app's `.gitignore`.
+
+Migrations run **between** the two halves of an update: after the new
+application code is written, before any directory is swapped. That is the only
+moment where the code on disk is new and the dependency tree in memory still
+matches the one on disk.
+
+Running them after the swap would load classes through autoload maps that
+describe a tree that moved. Deferring them to a later request would be worse:
+the whole boot — filters, user model — would run with new code against the old
+schema, and a 500 there takes the panel and the rollback with it.
+
+`$swapRoots` defaults to `['vendor']` and does nothing until a release
+actually covers it. Set it to `[]` to write everything file by file.
 
 ## The admin panel view
 

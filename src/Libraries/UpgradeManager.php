@@ -25,6 +25,9 @@ class UpgradeManager
     /** @var list<string> Policy: the roots a release is allowed to declare. */
     private array $allowedRoots;
 
+    /** @var list<string> Roots replaced by a whole-directory swap. */
+    private array $swapRoots;
+
     private string $userAgent;
 
     /** @var list<string> PEM contents or paths; empty means signatures are not enforced. */
@@ -37,9 +40,16 @@ class UpgradeManager
      * @param list<string>|null $publicKeys   Overrides Config\Updater::$publicKeys (mainly for tests)
      * @param int|null          $keepBackups  Overrides Config\Updater::$keepBackups
      * @param list<string>|null $allowedRoots Overrides Config\Updater::$allowedRoots
+     * @param list<string>|null $swapRoots    Overrides Config\Updater::$swapRoots
      */
-    public function __construct(?array $publicKeys = null, ?int $keepBackups = null, ?array $allowedRoots = null)
-    {
+    public function __construct(
+        ?array $publicKeys = null,
+        ?int $keepBackups = null,
+        ?array $allowedRoots = null,
+        ?array $swapRoots = null,
+    ) {
+        $this->swapRoots = ReleaseScope::normalize($swapRoots ?? self::configuredList('swapRoots'));
+
         $this->scanDirs     = ReleaseScope::normalize(Updater::SCAN_DIRS);
         $this->userAgent    = Updater::USER_AGENT;
         $this->publicKeys   = $publicKeys ?? self::configuredPublicKeys();
@@ -57,11 +67,19 @@ class UpgradeManager
      */
     private static function configuredAllowedRoots(): array
     {
+        return self::configuredList('allowedRoots');
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function configuredList(string $property): array
+    {
         if (function_exists('config')) {
             $config = config('Updater');
 
-            if (is_object($config) && property_exists($config, 'allowedRoots') && is_array($config->allowedRoots)) {
-                return ReleaseScope::normalize($config->allowedRoots);
+            if (is_object($config) && property_exists($config, $property) && is_array($config->{$property})) {
+                return ReleaseScope::normalize($config->{$property});
             }
         }
 
@@ -467,11 +485,26 @@ class UpgradeManager
      * @param array             $newManifest Optional manifest with expected SHA-256 hashes for validation
      * @param string|null       $version     Version being applied, recorded in the backup manifest
      * @param list<string>|null $roots       The release's scope; defaults to the configured SCAN_DIRS
+     * @param callable|null     $beforeSwap  Run after the in-place files are written and before any
+     *                                       root is swapped. Migrations belong here: at that point the
+     *                                       new application code is on disk while the dependency tree
+     *                                       in memory still matches the one on disk. Swapping first
+     *                                       would leave the autoload maps describing files that moved;
+     *                                       deferring to a later request would run the whole boot —
+     *                                       filters and user model included — against a schema the new
+     *                                       code no longer expects, and a 500 there takes the panel and
+     *                                       the rollback with it.
      *
      * @return array{success: bool, backup_dir?: string, updated?: int, added?: int, modified?: int, deleted?: int, error?: string}
      */
-    public function apply(string $extractDir, array $diff, array $newManifest = [], ?string $version = null, ?array $roots = null): array
-    {
+    public function apply(
+        string $extractDir,
+        array $diff,
+        array $newManifest = [],
+        ?string $version = null,
+        ?array $roots = null,
+        ?callable $beforeSwap = null,
+    ): array {
         $roots = $roots === null ? $this->scanDirs : ReleaseScope::normalize($roots);
 
         // prepare() validated all of this, but apply() is public and its
@@ -505,8 +538,30 @@ class UpgradeManager
             }
         }
 
-        $base      = ROOTPATH;
-        $backupDir = WRITEPATH . 'backups/backup-' . date('Y-m-d-His') . '/';
+        // Roots this release covers that are replaced wholesale rather than
+        // file by file. Their entries are taken out of the per-file loops
+        // below: the directory is swapped in one move at the end.
+        $swapping = array_values(array_intersect($roots, $this->swapRoots));
+
+        if ($swapping !== [] && $newManifest === []) {
+            return [
+                'success' => false,
+                'error'   => 'Refusing to swap ' . implode(', ', $swapping)
+                    . ' without a manifest: there would be no way to tell what belongs in the new tree.',
+            ];
+        }
+
+        $inPlace = [];
+        foreach (['added', 'modified', 'deleted'] as $group) {
+            $inPlace[$group] = array_values(array_filter(
+                $diff[$group] ?? [],
+                fn ($file) => ! in_array(explode('/', (string) $file)[0], $swapping, true),
+            ));
+        }
+
+        $base       = ROOTPATH;
+        $backupName = 'backup-' . date('Y-m-d-His');
+        $backupDir  = WRITEPATH . 'backups/' . $backupName . '/';
         @mkdir($backupDir, 0755, true);
 
         // Record what this update did. Without it a rollback can only put back
@@ -521,6 +576,9 @@ class UpgradeManager
             'from_version' => Updater::VERSION,
             'to_version'   => $version,
             'roots'        => $roots,
+            // Swapped roots are not in this backup directory: their previous
+            // tree is parked under ROOTPATH, and a restore renames it back.
+            'swapped'      => $swapping,
             'diff'         => [
                 'added'    => array_values($diff['added']),
                 'modified' => array_values($diff['modified']),
@@ -529,7 +587,7 @@ class UpgradeManager
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 
         // Backup each file that will be overwritten or deleted
-        foreach (array_merge($diff['modified'], $diff['deleted']) as $file) {
+        foreach (array_merge($inPlace['modified'], $inPlace['deleted']) as $file) {
             $src = $base . $file;
             if (file_exists($src)) {
                 $dst = $backupDir . $file;
@@ -539,7 +597,7 @@ class UpgradeManager
         }
 
         // Copy added + modified files
-        $toUpdate = array_merge($diff['added'], $diff['modified']);
+        $toUpdate = array_merge($inPlace['added'], $inPlace['modified']);
         $updated  = 0;
 
         foreach ($toUpdate as $file) {
@@ -577,7 +635,7 @@ class UpgradeManager
         }
 
         // Delete files removed from the release
-        foreach ($diff['deleted'] as $file) {
+        foreach ($inPlace['deleted'] as $file) {
             $dst = $base . $file;
             if (file_exists($dst) && ! @unlink($dst)) {
                 return [
@@ -586,6 +644,28 @@ class UpgradeManager
                     'backup_dir' => $backupDir,
                 ];
             }
+        }
+
+        // Schema changes land here, between the two halves — see $beforeSwap.
+        if ($beforeSwap !== null) {
+            $beforeSwap();
+        }
+
+        // Swapped roots go in last. Everything above is already on disk, so a
+        // failure here leaves a consistent tree rather than a half-updated one,
+        // and the swap itself is the shortest possible window.
+        foreach ($swapping as $root) {
+            $swapped = $this->swapRoot($root, $extractDir, $backupName, $newManifest);
+
+            if (! $swapped['success']) {
+                return [
+                    'success'    => false,
+                    'error'      => $swapped['error'],
+                    'backup_dir' => $backupDir,
+                ];
+            }
+
+            $updated += $swapped['files'];
         }
 
         // Clear opcache to ensure new code is loaded
@@ -600,7 +680,187 @@ class UpgradeManager
             'added'      => count($diff['added']),
             'modified'   => count($diff['modified']),
             'deleted'    => count($diff['deleted']),
+            'swapped'    => $swapping,
         ];
+    }
+
+    /**
+     * Puts a swapped root back, by the same two renames in reverse.
+     *
+     * @return array{success: bool, files?: int, error?: string}
+     */
+    private function revertSwap(string $root, string $backupName): array
+    {
+        if (! ReleaseScope::isValidRootName($root)) {
+            return ['success' => false, 'error' => "This backup records an unusable swapped root: {$root}"];
+        }
+
+        $live   = ROOTPATH . $root;
+        $parked = ROOTPATH . '.updater-swap/' . $backupName . '/' . $root;
+
+        if (! is_dir($parked)) {
+            return [
+                'success' => false,
+                'error'   => "The previous {$root} is gone, so this backup cannot be restored. "
+                    . 'It was parked under .updater-swap/ and something removed it.',
+            ];
+        }
+
+        $files    = $this->countFiles($parked);
+        $discard  = ROOTPATH . $root . '.updater-discard';
+        $hadLive  = is_dir($live);
+
+        $this->cleanup($discard . '/');
+
+        if ($hadLive && ! @rename($live, $discard)) {
+            return ['success' => false, 'error' => "Could not move the current {$root} aside."];
+        }
+
+        if (! @rename($parked, $live)) {
+            if ($hadLive) {
+                @rename($discard, $live);
+            }
+
+            return ['success' => false, 'error' => "Could not put the previous {$root} back."];
+        }
+
+        $this->cleanup($discard . '/');
+
+        return ['success' => true, 'files' => $files];
+    }
+
+    private function countFiles(string $dir): int
+    {
+        if (! is_dir($dir)) {
+            return 0;
+        }
+
+        $count = 0;
+        $iter  = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS)
+        );
+
+        foreach ($iter as $file) {
+            if ($file->isFile()) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * Where the previous tree of a swapped root is parked.
+     *
+     * Under ROOTPATH rather than in writable/: the point of a swap is that the
+     * old tree is renamed aside instead of copied, and rename() only works
+     * within one filesystem — writable/ is a separate mount often enough
+     * (a Docker volume, for one) that relying on it would be a trap.
+     */
+    private function swapParkDir(string $backupName): string
+    {
+        $dir = ROOTPATH . '.updater-swap/';
+
+        if (! is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+
+            // ROOTPATH is normally above the document root, but not on every
+            // shared host — the same belt-and-braces CodeIgniter puts in
+            // writable/.
+            @file_put_contents($dir . '.htaccess', "Require all denied\n");
+            @file_put_contents($dir . 'index.html', '');
+        }
+
+        return $dir . $backupName . '/';
+    }
+
+    /**
+     * Replaces a whole root directory in two renames.
+     *
+     * The new tree is built from the manifest — not by copying whatever the
+     * archive happens to contain — so a swap installs exactly the files the
+     * release declares, the same rule the per-file path follows.
+     *
+     * @param array<string, string> $newManifest path => expected SHA-256
+     *
+     * @return array{success: bool, files?: int, error?: string}
+     */
+    private function swapRoot(string $root, string $extractDir, string $backupName, array $newManifest): array
+    {
+        $base    = ROOTPATH;
+        $live    = $base . $root;
+        $staging = $base . $root . '.updater-new';
+        $parked  = $this->swapParkDir($backupName) . $root;
+
+        $this->cleanup($staging . '/');
+
+        $files = 0;
+
+        foreach ($newManifest as $path => $expected) {
+            $path = (string) $path;
+
+            if (explode('/', $path)[0] !== $root) {
+                continue;
+            }
+
+            $src = $extractDir . $path;
+            if (! is_file($src)) {
+                $this->cleanup($staging . '/');
+
+                return ['success' => false, 'error' => "File not found in archive: {$path}"];
+            }
+
+            if (hash_file('sha256', $src) !== $expected) {
+                $this->cleanup($staging . '/');
+
+                return ['success' => false, 'error' => "Invalid hash for {$path}. Archive corrupted or incomplete."];
+            }
+
+            // substr past "<root>/" — the staged tree mirrors the live one.
+            $dst = $staging . substr($path, strlen($root));
+            @mkdir(dirname($dst), 0755, true);
+
+            if (! copy($src, $dst)) {
+                $this->cleanup($staging . '/');
+
+                return ['success' => false, 'error' => "Could not stage: {$path}"];
+            }
+
+            $files++;
+        }
+
+        if ($files === 0) {
+            $this->cleanup($staging . '/');
+
+            return ['success' => false, 'error' => "The release declares {$root} but ships no file under it."];
+        }
+
+        @mkdir(dirname($parked), 0755, true);
+
+        // Two renames, and the only moment $root does not exist is between
+        // them. POSIX has no atomic directory exchange, so that window cannot
+        // be closed — but it is microseconds, against the seconds or minutes a
+        // file-by-file rewrite would leave the tree inconsistent.
+        if (is_dir($live) && ! @rename($live, $parked)) {
+            $this->cleanup($staging . '/');
+
+            return ['success' => false, 'error' => "Could not move the current {$root} aside."];
+        }
+
+        if (! @rename($staging, $live)) {
+            // Put the original back rather than leave the app without the
+            // directory: this is the one failure that would take the panel
+            // down with it.
+            if (is_dir($parked)) {
+                @rename($parked, $live);
+            }
+
+            $this->cleanup($staging . '/');
+
+            return ['success' => false, 'error' => "Could not put the new {$root} in place; the previous one was restored."];
+        }
+
+        return ['success' => true, 'files' => $files];
     }
 
     /**
@@ -643,6 +903,16 @@ class UpgradeManager
                     $files++;
                     $size += $file->getSize();
                 }
+            }
+
+            // A swapped root lives beside the app, not in this directory, but
+            // it is part of what this backup occupies and what deleting it
+            // frees — reporting only the files here would understate it by
+            // most of its size.
+            $parked = ROOTPATH . '.updater-swap/' . $entry;
+            if (is_dir($parked)) {
+                $files += $this->countFiles($parked);
+                $size += $this->directorySize($parked);
             }
 
             $backups[] = [
@@ -727,10 +997,30 @@ class UpgradeManager
             $restored++;
         }
 
+        // Swapped roots are not made of individual files here: the previous
+        // tree was renamed aside, so it is renamed back.
+        $swapped = ReleaseScope::normalize(is_array($meta['swapped'] ?? null) ? $meta['swapped'] : []);
+
+        foreach ($swapped as $root) {
+            $reverted = $this->revertSwap($root, $name);
+
+            if (! $reverted['success']) {
+                return $reverted;
+            }
+
+            $restored += $reverted['files'];
+        }
+
         // Undo the files the update introduced. A path that no longer passes
         // validation is fatal rather than skipped: silently leaving a file
         // behind is the exact half-restore backup.json exists to prevent.
         foreach ($meta['diff']['added'] ?? [] as $file) {
+            // Already handled by the swap above — the whole directory went
+            // back, so its individual files are not the unit of work.
+            if (is_string($file) && in_array(explode('/', $file)[0], $swapped, true)) {
+                continue;
+            }
+
             if (! is_string($file) || ! $this->isSafeManifestPath($file, $roots)) {
                 return [
                     'success' => false,
@@ -768,10 +1058,16 @@ class UpgradeManager
             return ['success' => false, 'error' => "Backup not found: {$name}"];
         }
 
-        $freed = $this->directorySize($dir);
-        $this->cleanup($dir . '/');
+        // The parked trees of any swapped root belong to this backup and go
+        // with it. They are the bulk of its size, and nothing else would ever
+        // clean them up.
+        $parked = ROOTPATH . '.updater-swap/' . $name;
+        $freed  = $this->directorySize($dir) + $this->directorySize($parked);
 
-        if (is_dir($dir)) {
+        $this->cleanup($dir . '/');
+        $this->cleanup($parked . '/');
+
+        if (is_dir($dir) || is_dir($parked)) {
             return ['success' => false, 'error' => "Could not fully delete {$name}."];
         }
 
@@ -816,6 +1112,12 @@ class UpgradeManager
 
     private function directorySize(string $dir): int
     {
+        // Callers ask about directories that legitimately may not exist — a
+        // backup with no swapped root parks nothing.
+        if (! is_dir($dir)) {
+            return 0;
+        }
+
         $size = 0;
         $iter = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS)

@@ -230,6 +230,21 @@ class UpdateController extends Controller
             return redirect()->to('/admin/updates')->with('error', 'No pending update in session. Start over.');
         }
 
+        // Migrations run inside apply(), after the new application code is
+        // written and before any directory is swapped. Everything the request
+        // needs is loaded by then, so the window where code and schema
+        // disagree closes before the response is sent — a later request would
+        // boot filters and models against the old schema and could 500 on the
+        // very page that was meant to migrate it.
+        $migrationError = null;
+        $migrate        = static function () use (&$migrationError): void {
+            try {
+                service('migrations')->latest();
+            } catch (\Throwable $e) {
+                $migrationError = $e->getMessage();
+            }
+        };
+
         $manager = new UpgradeManager();
         $result  = $manager->apply(
             $state['extractDir'],
@@ -237,18 +252,11 @@ class UpdateController extends Controller
             $state['manifest'] ?? [],
             $state['version'],
             $state['roots'] ?? null,
+            $migrate,
         );
 
         if (! $result['success']) {
             return redirect()->to('/admin/updates')->with('error', 'Apply failed: ' . ($result['error'] ?? ''));
-        }
-
-        // Run pending DB migrations
-        $migrationError = null;
-        try {
-            service('migrations')->latest();
-        } catch (\Throwable $e) {
-            $migrationError = $e->getMessage();
         }
 
         // Clear caches
