@@ -88,6 +88,11 @@ it before writing, so signing the manifest covers the whole payload. Because
 the signature is over the literal bytes, even a whitespace change invalidates
 it — never regenerate or reformat a manifest after signing it.
 
+It also covers the `roots` the release declares, since those live in the same
+document. That matters: the scope decides which directories an update may
+write to and which files count as deleted, and it otherwise arrives from the
+update server untrusted like everything else.
+
 Where the signature is stored has no bearing on security: its value comes from
 the key that produced it. Inside the ZIP is simply the most convenient place.
 

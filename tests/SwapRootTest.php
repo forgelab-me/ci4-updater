@@ -349,8 +349,16 @@ final class SwapRootTest extends TestCase
             ['vendor'],
         );
 
-        self::assertFileExists(ROOTPATH . '.updater-swap/.htaccess');
         self::assertFileExists(ROOTPATH . '.updater-swap/index.html');
+
+        $htaccess = (string) file_get_contents(ROOTPATH . '.updater-swap/.htaccess');
+
+        // Both branches, like CodeIgniter's own writable/.htaccess. A bare
+        // `Require all denied` is a syntax error without authz_core, and
+        // Apache answers 500 for the whole subtree instead of denying it.
+        self::assertStringContainsString('Require all denied', $htaccess);
+        self::assertStringContainsString('Deny from all', $htaccess);
+        self::assertStringContainsString('<IfModule !authz_core_module>', $htaccess);
     }
 
     public function testABackupReportsTheSizeOfItsParkedTree(): void

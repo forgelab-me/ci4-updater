@@ -4,6 +4,53 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.8.0] - 2026-07-31
+
+### Added
+
+- **The panel warns when an update steps over a release that shipped a
+  directory this one doesn't.**
+
+  Only the latest release is ever offered, so an app on 1.1 installs 1.4
+  directly. Harmless while every release covers the same directories — each
+  rewrites them wholesale. Not harmless once they differ: if 1.2 shipped
+  `vendor/` and 1.4 doesn't, that jump leaves `vendor/` exactly where it was,
+  and no later release will pick it up.
+
+  An app cannot see this on its own; it only hears about one release. It now
+  sends `?from={installed version}` when checking, and a feed that understands
+  it answers with `skipped_versions` and `missed_roots`. A feed that ignores it
+  — a hand-written `latest.json`, any static host — answers as before and the
+  panel has nothing to warn about. Requires `ci4-update-server` 1.4 or later to
+  produce the fields.
+
+- **Required steps.** A warning depends on someone reading it. A feed can now
+  answer with an intermediate release *instead of* the newest one — marked
+  `required_step`, with `latest_version` saying where the app ends up. The app
+  applies it, checks again, and is handed the next one, walking the path
+  rather than jumping to the end.
+
+  Nothing changes in how an update is applied: the panel downloads and installs
+  whatever version it is given. It just says why it is being offered something
+  that isn't the latest, so nobody wonders. In `ci4-update-server` this is a
+  checkbox per release.
+
+### Fixed
+
+- **The `.htaccess` guarding `.updater-swap/` was missing its Apache 2.2
+  branch.** It shipped a bare `Require all denied`, which is a syntax error
+  without `authz_core` — Apache answers 500 for the whole subtree instead of
+  simply denying it. It now carries both branches, like CodeIgniter's own
+  `writable/.htaccess`. Only reachable at all on a host whose document root is
+  the application root rather than `public/`, and only once a release has
+  swapped a directory.
+
+### Upgrading
+
+Nothing to do. The extra query parameter is ignored by feeds that don't
+implement it, and both the warning and the step notice appear only when the
+feed says there is something to report.
+
 ## [2.7.1] - 2026-07-31
 
 ### Fixed

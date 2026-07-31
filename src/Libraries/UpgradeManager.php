@@ -766,8 +766,17 @@ class UpgradeManager
 
             // ROOTPATH is normally above the document root, but not on every
             // shared host — the same belt-and-braces CodeIgniter puts in
-            // writable/.
-            @file_put_contents($dir . '.htaccess', "Require all denied\n");
+            // writable/, including its 2.2 fallback: a bare `Require all
+            // denied` is a syntax error without authz_core, and Apache answers
+            // 500 for the whole subtree rather than simply denying it.
+            @file_put_contents($dir . '.htaccess', <<<'HTACCESS'
+                <IfModule authz_core_module>
+                    Require all denied
+                </IfModule>
+                <IfModule !authz_core_module>
+                    Deny from all
+                </IfModule>
+                HTACCESS);
             @file_put_contents($dir . 'index.html', '');
         }
 

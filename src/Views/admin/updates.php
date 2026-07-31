@@ -455,6 +455,42 @@ document.getElementById('btn-check-remote')?.addEventListener('click', function 
             };
             const isNewer = semverCmp(data.version, current) > 0;
 
+            // Releases are not cumulative for a directory the latest one
+            // doesn't cover: jumping straight to it leaves that directory at
+            // whatever version it is on now. Only the server can see this —
+            // the panel only ever hears about one release.
+            // The server can hand back an intermediate release instead of the
+            // newest one when that release must not be jumped over. Saying so
+            // avoids the reasonable "why is it offering me an old version?".
+            let stepNotice = '';
+            if (isNewer && data.required_step) {
+                stepNotice = `
+                    <div class="alert alert-primary py-2 mt-2 mb-0 small">
+                        <i class="bi bi-signpost-split me-1"></i>
+                        The update server serves this release on its own because it must not be
+                        skipped.${data.latest_version
+                            ? ` Once it is applied, v${h(data.latest_version)} becomes available.`
+                            : ' Check again once it is applied to continue.'}
+                    </div>`;
+            }
+
+            let skipWarning = '';
+            const missed = Array.isArray(data.missed_roots) ? data.missed_roots : [];
+            if (isNewer && missed.length) {
+                const skipped = Array.isArray(data.skipped_versions) ? data.skipped_versions : [];
+                skipWarning = `
+                    <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        <strong>v${h(data.version)} does not cover ${h(missed.join(', '))}.</strong>
+                        ${skipped.length
+                            ? `Version${skipped.length > 1 ? 's' : ''} ${h(skipped.join(', '))} did, and installing
+                               v${h(data.version)} skips ${skipped.length > 1 ? 'them' : 'it'}.`
+                            : 'An intermediate release did.'}
+                        ${h(missed.join(', '))} will stay exactly as ${missed.length > 1 ? 'they are' : 'it is'} —
+                        apply the intermediate release${skipped.length > 1 ? 's' : ''} first if that matters.
+                    </div>`;
+            }
+
             let downloadForm = '';
             if (isNewer) {
                 const csrfField = document.querySelector('meta[name="csrf-field"]').content;
@@ -476,7 +512,9 @@ document.getElementById('btn-check-remote')?.addEventListener('click', function 
                     <div class="d-flex align-items-center flex-wrap gap-2">
                         <strong>Latest version: v${h(data.version)}</strong>
                         ${isNewer
-                            ? '<span class="badge bg-success">New version available!</span>'
+                            ? (data.required_step
+                                ? '<span class="badge bg-primary"><i class="bi bi-signpost-split me-1"></i>Required step</span>'
+                                : '<span class="badge bg-success">New version available!</span>')
                             : '<span class="badge bg-secondary">You are up to date</span>'}
                         ${data.date ? `<span class="text-secondary small">Released ${h(data.date)}</span>` : ''}
                     </div>
@@ -484,6 +522,8 @@ document.getElementById('btn-check-remote')?.addEventListener('click', function 
                         <summary style="cursor:pointer" class="opacity-75 small">Changelog</summary>
                         <pre class="mt-1 p-2 rounded small mb-0" style="background:rgba(0,0,0,.3);white-space:pre-wrap;max-height:160px;overflow:auto">${h(data.changelog)}</pre>
                     </details>` : ''}
+                    ${stepNotice}
+                    ${skipWarning}
                     ${downloadForm}
                 </div>`;
 

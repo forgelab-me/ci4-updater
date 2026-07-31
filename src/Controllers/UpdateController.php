@@ -152,7 +152,11 @@ class UpdateController extends Controller
             ]);
         }
 
-        $latestUrl = $serverUrl . '/latest.json';
+        // Telling the server where we are lets it report what going straight
+        // to the latest release would step over — it is the only side that can
+        // see the releases in between. A feed that ignores the parameter (a
+        // static latest.json, say) simply answers without those fields.
+        $latestUrl = $serverUrl . '/latest.json?from=' . rawurlencode(Updater::VERSION);
         $headers   = 'User-Agent: ' . Updater::USER_AGENT . "\r\nAccept: application/json\r\n";
         if ($token !== '') {
             $headers .= "Authorization: Bearer {$token}\r\n";
@@ -180,7 +184,33 @@ class UpdateController extends Controller
             'date'         => $data['date'] ?? '',
             'zip_url'      => $data['zip_url'] ?? '',
             'manifest_url' => $data['manifest_url'] ?? '',
+            // Absent from feeds that don't compute them; the panel then simply
+            // has nothing to warn about.
+            'missed_roots'     => self::stringList($data['missed_roots'] ?? null),
+            'skipped_versions' => self::stringList($data['skipped_versions'] ?? null),
+            // The server may hand back an intermediate release rather than the
+            // newest one, when that release must not be jumped over.
+            'required_step'  => ! empty($data['required_step']),
+            'latest_version' => is_string($data['latest_version'] ?? null) ? $data['latest_version'] : '',
         ]);
+    }
+
+    /**
+     * Keeps only plain strings: these come from the update server and end up
+     * rendered in the panel.
+     *
+     * @return list<string>
+     */
+    public static function stringList(mixed $value): array
+    {
+        if (! is_array($value)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $value,
+            static fn ($item) => is_string($item) && $item !== '' && strlen($item) <= 64,
+        ));
     }
 
     // ── Upgrade pipeline ─────────────────────────────────────────────────────

@@ -54,6 +54,11 @@ The installed app replaces `vendor/` by swapping the directory rather than
 rewriting it file by file — see [Shipping vendor/](configuration.md#shipping-vendor)
 for why that matters and what it costs.
 
+Shipping a directory in some releases and not others has one consequence worth
+keeping in mind: an app that jumps from 1.1 straight to 1.4 never applies what
+1.2 shipped. See
+[Releases are not cumulative for a directory](configuration.md#releases-are-not-cumulative-for-a-directory).
+
 This scans those directories, hashes every file with SHA-256, and writes:
 
 - `manifest.json` at the project root

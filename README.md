@@ -10,6 +10,9 @@ downloads the release ZIP, diffs it against the live install (SHA-256
 manifest), backs up changed files, applies the update, and runs pending DB
 migrations — all from the browser, no SSH/git pull required.
 
+Every update leaves a backup the panel restores in one click, and releases can
+be signed so a compromised update server can't publish code to your apps.
+
 | | |
 |---|---|
 | ![Dashboard](docs/screenshots/01-dashboard.jpg) *Current version, PHP/CI/DB info, migration status* | ![Update available](docs/screenshots/02-update-available.jpg) *A new release was found* |
@@ -73,6 +76,16 @@ refused from then on. See [Signing releases](docs/signing.md) and
 3. In the app, `/admin/updates` checks the feed, downloads and diffs the
    release, and applies it on confirmation — backing up every changed file to
    `writable/backups/` and running pending migrations.
+4. If it goes wrong, the same panel restores that backup: files go back as
+   they were and files the update added are removed. Older backups are pruned
+   automatically (`$keepBackups`, five by default). A restore reverts code and
+   never the database — the panel flags backups whose update shipped
+   migrations.
+
+A release covers `app/` and `public/` by default and says so in its manifest,
+so an app only ever touches what a release actually declares. Dependencies can
+be shipped too — see
+[Shipping vendor/](docs/configuration.md#shipping-vendor).
 
 Step by step: [Releasing an update](docs/releasing.md).
 

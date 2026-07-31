@@ -115,6 +115,29 @@ schema, and a 500 there takes the panel and the rollback with it.
 `$swapRoots` defaults to `['vendor']` and does nothing until a release
 actually covers it. Set it to `[]` to write everything file by file.
 
+### Releases are not cumulative for a directory
+
+Worth understanding before shipping `vendor/` selectively. The panel offers
+the latest release and nothing else, so an app on 1.1 installs 1.4 directly.
+If 1.2 shipped `vendor/` and 1.4 doesn't, that jump leaves `vendor/` where it
+was — 1.4 never touches it, and no later release will either.
+
+The panel warns about it when the feed can tell:
+
+> **v1.4.0 does not cover vendor.** Versions 1.2.0, 1.3.0 did, and installing
+> v1.4.0 skips them. vendor will stay exactly as it is — apply the
+> intermediate releases first if that matters.
+
+That warning needs a feed that answers `?from=`; see
+[Skipped releases](update-server.md#skipped-releases). Against a static
+`latest.json` it can't be computed, and keeping track is on you.
+
+A warning still depends on someone reading it. A feed can go further and serve
+the release that must not be skipped **instead of** the newest one, so the app
+walks through it — see [Required steps](update-server.md#required-steps). In
+`ci4-update-server` that is a checkbox per release, suggested automatically
+when the covered directories call for it.
+
 ## The admin panel view
 
 The panel is rendered **from the package**, so interface changes arrive with
