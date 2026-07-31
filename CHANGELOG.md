@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.7.1] - 2026-07-31
+
+### Fixed
+
+- **`updater:setup` crashed when a file it publishes already existed.** The
+  overwrite prompt called `$this->prompt()`, which `BaseCommand` does not
+  provide — it is `CLI::prompt()`. Re-running setup died with *Call to
+  undefined method* instead of asking.
+
+  Only the overwrite path was affected, which is why it survived three
+  releases: a first run publishes into an empty spot and never reaches it.
+  Passing `-f` also skipped it.
+
 ## [2.7.0] - 2026-07-30
 
 Builds on 2.6, which made a release declare the directories it covers. That

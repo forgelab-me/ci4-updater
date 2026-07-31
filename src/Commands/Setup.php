@@ -143,7 +143,7 @@ class Setup extends BaseCommand
         $dest = APPPATH . $relativePath;
 
         if (is_file($dest) && CLI::getOption('f') === null) {
-            $overwrite = $this->prompt("  {$relativePath} already exists. Overwrite?", ['n', 'y']);
+            $overwrite = CLI::prompt("  {$relativePath} already exists. Overwrite?", ['n', 'y']);
             if ($overwrite !== 'y') {
                 CLI::error("  Skipped {$relativePath}. Use -f to force overwrite.");
                 return;
