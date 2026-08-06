@@ -154,7 +154,7 @@ having to port future changes yourself.
                             <td class="text-light"><?= esc($ciVersion) ?></td>
                         </tr>
                         <tr>
-                            <td class="text-secondary">MySQL / MariaDB</td>
+                            <td class="text-secondary"><?= esc($dbDriver) ?></td>
                             <td class="text-light"><?= esc($dbVersion) ?></td>
                         </tr>
                     </tbody>

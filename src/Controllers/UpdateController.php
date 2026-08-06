@@ -81,6 +81,7 @@ class UpdateController extends Controller
             'phpVersion'     => PHP_VERSION,
             'ciVersion'      => \CodeIgniter\CodeIgniter::CI_VERSION,
             'dbVersion'      => $db->getVersion(),
+            'dbDriver'       => $db->getPlatform(),
             'migrations'     => $migrations,
             'pendingCount'   => $pendingCount,
             'cacheSize'      => $cacheSize,
