@@ -6,6 +6,10 @@ namespace Forgelabme\Ci4Updater\Commands;
 
 use CodeIgniter\CLI\BaseCommand;
 use CodeIgniter\CLI\CLI;
+// The package's own config, not the published Config\Updater: this command
+// runs before that file necessarily exists, and the constants are the same.
+use Forgelabme\Ci4Updater\Config\Updater;
+use Forgelabme\Ci4Updater\Libraries\UpdaterSettings;
 
 /**
  * Usage: php spark updater:setup
@@ -45,12 +49,14 @@ class Setup extends BaseCommand
         }
 
         $this->wireRoutes();
+        $settingsPath = $this->publishSettings();
 
         CLI::newLine();
         CLI::write('Next steps:', 'yellow');
         CLI::write('  1. Edit app/Config/Updater.php (VERSION, DATE, USER_AGENT).', 'white');
         CLI::write('  2. Set $layout to the layout the panel should extend, and $appName.', 'white');
-        CLI::write('  3. Set update_server_url (and optional token), e.g. via UpdaterSettings.', 'white');
+        CLI::write('  3. Point the app at a feed — either edit ' . $settingsPath, 'white');
+        CLI::write('     or run: php spark updater:config --url https://updates.example.com/api/my-app', 'white');
         CLI::write('  4. Make sure the "admin" filter (or whatever you pass to routes()) protects these routes.', 'white');
         CLI::write('  5. Run `php spark update:manifest` before cutting each release.', 'white');
 
@@ -107,6 +113,52 @@ class Setup extends BaseCommand
         $content = str_replace('__DATE__', date('Y-m-d'), $content);
 
         $this->writeFile('Config/Updater.php', $content);
+    }
+
+    /**
+     * Creates the settings store with its two keys empty.
+     *
+     * The point is that the file *exists* after setup. Before this, the
+     * default store was a JSON file that only appeared once something had
+     * written to it — so a new user was told to "set update_server_url" with
+     * nothing on disk to edit and no way to guess the shape short of reading
+     * the package source.
+     *
+     * A custom $settingsClass is left alone: its owner has their own store.
+     *
+     * @return string A human-readable location, for the closing instructions
+     */
+    private function publishSettings(): string
+    {
+        $config = function_exists('config') ? config('Updater') : null;
+        $class  = is_object($config) && property_exists($config, 'settingsClass')
+            ? $config->settingsClass
+            : UpdaterSettings::class;
+
+        if ($class !== UpdaterSettings::class) {
+            return 'your ' . (new \ReflectionClass($class))->getShortName() . ' store';
+        }
+
+        $path = WRITEPATH . UpdaterSettings::FILENAME;
+
+        if (is_file($path)) {
+            CLI::write('  Settings: writable/' . UpdaterSettings::FILENAME . ' already exists, left as is.', 'green');
+
+            return 'writable/' . UpdaterSettings::FILENAME;
+        }
+
+        $written = @file_put_contents($path, json_encode([
+            Updater::SETTING_SERVER_URL   => '',
+            Updater::SETTING_SERVER_TOKEN => '',
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+
+        if ($written === false) {
+            CLI::error('  Could not write writable/' . UpdaterSettings::FILENAME . ' — check permissions.');
+        } else {
+            CLI::write('  Created: writable/' . UpdaterSettings::FILENAME, 'green');
+        }
+
+        return 'writable/' . UpdaterSettings::FILENAME;
     }
 
     private function publishView(): void

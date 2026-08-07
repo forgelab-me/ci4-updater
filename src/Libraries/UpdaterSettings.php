@@ -16,11 +16,14 @@ namespace Forgelabme\Ci4Updater\Libraries;
  */
 class UpdaterSettings implements SettingsInterface
 {
+    /** Named so `updater:setup` and the panel can point at it by name. */
+    public const FILENAME = 'updater_settings.json';
+
     private string $path;
 
     public function __construct()
     {
-        $this->path = WRITEPATH . 'updater_settings.json';
+        $this->path = WRITEPATH . self::FILENAME;
     }
 
     public function getSetting(string $key, mixed $default = null): mixed

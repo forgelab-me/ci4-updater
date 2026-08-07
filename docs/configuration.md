@@ -209,9 +209,30 @@ Two keys drive the client side:
 | `update_server_url` | Base URL that resolves `{url}/latest.json`. See [Update server](update-server.md). |
 | `update_server_token` | Optional bearer token, sent as `Authorization: Bearer <token>` when the feed is protected. |
 
-By default they live in `writable/updater_settings.json`. Set them directly,
-wire your own admin settings UI to `setSetting()`, or swap the whole store —
-see below.
+By default they live in `writable/updater_settings.json`, which
+`updater:setup` creates with both keys empty:
+
+```json
+{
+    "update_server_url": "https://updates.example.com/api/my-app",
+    "update_server_token": ""
+}
+```
+
+Three ways to fill it in — the command works whatever store is configured:
+
+```bash
+php spark updater:config --url https://updates.example.com/api/my-app
+php spark updater:config --token <token>      # protected feed
+php spark updater:config                      # show what is set
+```
+
+Edit the file directly, or wire your own admin UI to `setSetting()`. The token
+is never printed back, only its length, so the command is safe in deploy logs.
+
+> A `settings` table in your database is **not** this. It comes from
+> `codeigniter4/settings`, pulled in by Shield. This package ships no
+> migrations and creates no tables.
 
 ## Custom settings storage
 

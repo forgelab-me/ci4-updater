@@ -4,6 +4,63 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.9.0] - 2026-08-07
+
+Nothing here changes how an update works. It fixes the fact that a new install
+had no usable way to reach the first one.
+
+### Fixed
+
+- **A fresh install could not be configured without reading the package
+  source.** `updater:setup` finished by saying "set `update_server_url`", and
+  there was no way to act on it: the panel has no field for it, there was no
+  command, the default settings file did not exist yet — so its very name and
+  shape were undiscoverable — and the documentation said "set them directly"
+  without showing what "them" looked like.
+
+  `updater:setup` now creates `writable/updater_settings.json` with both keys
+  empty. The file exists, sits in plain sight, and its shape is obvious. An
+  existing file is never touched, and a project using a custom
+  `Config\Updater::$settingsClass` is left alone.
+
+- **The panel's "no update server configured" message now says where to go.**
+  It named the key and stopped there, at exactly the point where someone is
+  stuck. It now gives the command to run and names the file — or the custom
+  store, when one is configured.
+
+### Added
+
+- **`php spark updater:config`** — shows or sets the update server URL and
+  token, writing through whatever `$settingsClass` is configured.
+
+  ```bash
+  php spark updater:config --url https://updates.example.com/api/my-app
+  php spark updater:config --token <token>
+  php spark updater:config --clear-token
+  php spark updater:config          # print what is currently set
+  ```
+
+  URLs are validated as absolute http(s) and stored without a trailing slash,
+  since the client appends `/latest.json` itself. The token is never printed
+  back, only its length — the output belongs in deploy logs.
+
+### Documentation
+
+- The README shows the settings file's contents at the step where you need it,
+  instead of linking elsewhere.
+- Both the README and the configuration reference note that a `settings` table
+  in your database comes from `codeigniter4/settings` via Shield, not from this
+  package — which ships no migrations and creates no tables. An empty table
+  with that name next to a missing settings file is a good way to lose an hour.
+
+## [2.8.1] - 2026-08-06
+
+### Fixed
+
+- **The panel labelled the database "MySQL / MariaDB" whatever it was.** The
+  row was hard-coded, so an install on PostgreSQL or SQLite was told it ran
+  MySQL. It now reports `$db->getPlatform()` alongside the version.
+
 ## [2.8.0] - 2026-07-31
 
 ### Added

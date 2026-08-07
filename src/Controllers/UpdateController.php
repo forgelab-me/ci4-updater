@@ -7,6 +7,7 @@ namespace Forgelabme\Ci4Updater\Controllers;
 use CodeIgniter\Controller;
 use Config\Updater;
 use Forgelabme\Ci4Updater\Libraries\SettingsInterface;
+use Forgelabme\Ci4Updater\Libraries\UpdaterSettings;
 use Forgelabme\Ci4Updater\Libraries\UpgradeManager;
 
 /**
@@ -141,6 +142,23 @@ class UpdateController extends Controller
         return new $class();
     }
 
+    /**
+     * Where the update-server settings actually live, in words.
+     *
+     * The default store is a JSON file; a project that swapped
+     * Config\Updater::$settingsClass has its own, and telling that user to
+     * edit a file they don't use would be worse than saying nothing.
+     */
+    private function settingsLocation(): string
+    {
+        /** @var Updater $config */
+        $config = config('Updater');
+
+        return $config->settingsClass === UpdaterSettings::class
+            ? 'writable/' . UpdaterSettings::FILENAME
+            : 'your ' . (new \ReflectionClass($config->settingsClass))->getShortName() . ' store';
+    }
+
     public function checkRemoteVersion(): \CodeIgniter\HTTP\ResponseInterface
     {
         $settings  = $this->settings();
@@ -148,8 +166,12 @@ class UpdateController extends Controller
         $token     = trim((string) $settings->getSetting(Updater::SETTING_SERVER_TOKEN, ''));
 
         if ($serverUrl === '') {
+            // Naming the place, not just the key: this is exactly where a new
+            // install gets stuck, so the message has to be actionable.
             return $this->response->setJSON([
-                'error' => 'No update server configured. Set ' . Updater::SETTING_SERVER_URL . ' in settings.',
+                'error' => 'No update server configured. Run '
+                    . '`php spark updater:config --url https://updates.example.com/api/my-app`, '
+                    . 'or set ' . Updater::SETTING_SERVER_URL . ' in ' . $this->settingsLocation() . '.',
             ]);
         }
 

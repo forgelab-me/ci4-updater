@@ -30,9 +30,11 @@ php spark updater:setup
 ```
 
 `updater:setup` is a one-time step per app. It publishes an editable
-`app/Config/Updater.php` and adds `service('updater')->routes($routes);` to
-`app/Config/Routes.php`. Re-running it is safe: existing files are only
-replaced after confirmation (or with `-f`), and the routes line is added once.
+`app/Config/Updater.php`, adds `service('updater')->routes($routes);` to
+`app/Config/Routes.php`, and creates `writable/updater_settings.json` with the
+two keys you have to fill in. Re-running it is safe: existing files are only
+replaced after confirmation (or with `-f`), the routes line is added once, and
+settings already set are left alone.
 
 The panel itself is rendered from the package, so its improvements arrive with
 `composer update`; point `$layout` at your admin layout and set `$appName`.
@@ -44,8 +46,30 @@ Then, at minimum:
 2. Set `$layout` to your admin layout and `$appName` in the same file.
 3. Make sure the route filter really restricts access — **read
    [Security](docs/security.md) first**.
-4. Point `update_server_url` at a feed — see
-   [Update server](docs/update-server.md).
+4. Point the app at a feed. Either run:
+
+   ```bash
+   php spark updater:config --url https://updates.example.com/api/my-app
+   ```
+
+   or edit `writable/updater_settings.json` directly:
+
+   ```json
+   {
+       "update_server_url": "https://updates.example.com/api/my-app",
+       "update_server_token": ""
+   }
+   ```
+
+   Leave the token empty for a public feed. `updater:config` with no options
+   prints what is currently set — the quickest answer to "why does the panel
+   say no update server is configured?". See
+   [Update server](docs/update-server.md) for what that URL has to serve.
+
+> If your app uses [Shield](https://github.com/codeigniter4/shield), running
+> migrations creates a `settings` table — that belongs to
+> `codeigniter4/settings`, a Shield dependency, and has nothing to do with this
+> package. ci4-updater ships no migrations and creates no tables.
 
 Full details: [Configuration](docs/configuration.md).
 
