@@ -150,8 +150,31 @@ public ?string $appName = 'My App';
 ```
 
 The layout must provide a `content` section, ideally `head` and `scripts`
-sections, and should render `success`/`error` flash messages. The markup uses
-Bootstrap 5 and Bootstrap Icons.
+sections. The markup uses Bootstrap 5 and Bootstrap Icons.
+
+### Your layout has to render flash messages
+
+**This one is easy to miss and expensive when you do.** Every outcome the panel
+reports — an update applied, a download that failed, a rollback, a refused
+signature — is set as flashdata and redirected. The panel renders none of it
+itself: that is the layout's job, and a layout that doesn't do it makes the
+panel fail in complete silence. You click, the page reloads, nothing happened
+and nothing said why.
+
+If your layout doesn't already handle them, add this to it:
+
+```php
+<?php if ($flash = session()->getFlashdata('error')): ?>
+    <div class="alert alert-danger"><?= esc($flash) ?></div>
+<?php endif; ?>
+<?php if ($flash = session()->getFlashdata('success')): ?>
+    <div class="alert alert-success"><?= esc($flash) ?></div>
+<?php endif; ?>
+```
+
+Worth testing once, deliberately: point `update_server_url` at a URL that
+doesn't resolve and press *Check*. If you see an error, your layout is wired
+correctly. If nothing happens at all, it isn't.
 
 ### Taking the view over
 

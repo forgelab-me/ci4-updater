@@ -4,6 +4,48 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.10.0] - 2026-08-07
+
+### Changed
+
+- **`updater:keygen` writes the two keys to two directories**, because they
+  have opposite requirements and one directory guarantees that one of them is
+  wrong.
+
+  | | Where | Why |
+  |---|---|---|
+  | `release-signing.key` | `writable/keys/` (unchanged) | Signs. Never deployed, never committed. |
+  | `release-signing.pub` | `app/Config/keys/` (new) | Verifies. Ships with every release, since `app/` is in `SCAN_DIRS`. |
+
+  Both used to land in `writable/`, which is in no release and in no git
+  checkout — so following the documented setup produced an app whose public key
+  could never arrive, and every update was refused. 2.9.1 made that failure
+  legible; this removes it.
+
+  `--out` still points the private key somewhere else, and `--pub-out` does the
+  same for the public one. The command also prints the public key as a
+  ready-to-paste PHP snippet, for anyone who would rather inline the PEM in the
+  config and have no file to deploy at all.
+
+  Existing installs are unaffected: this changes where a *new* key pair is
+  written, not where an app looks for one.
+
+### Documentation
+
+- **The layout must render flash messages — now said outright, with the code.**
+  It was one clause ("should render success/error flash messages") with no
+  snippet and no consequence stated. The consequence is that the panel reports
+  every outcome through flashdata and renders none of it itself, so a layout
+  that ignores them makes it fail in complete silence: you click, the page
+  reloads, nothing happened and nothing said why.
+
+  `docs/configuration.md` now has the snippet and a way to check it in one
+  minute — point the update server URL at something unreachable and press
+  *Check*. An error means the wiring is right; silence means it isn't.
+
+- `docs/signing.md` documents the split, and drops the guidance that sent the
+  public key into `writable/`.
+
 ## [2.9.1] - 2026-08-07
 
 ### Fixed

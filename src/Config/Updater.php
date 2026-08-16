@@ -94,7 +94,10 @@ class Updater extends BaseConfig
      * The layout the update panel extends.
      *
      * It must provide a `content` section, ideally `head` and `scripts`
-     * sections, and should render `success`/`error` flash messages.
+     * sections, and **must** render `success`/`error` flash messages — the
+     * panel reports every outcome through flashdata and renders none of it
+     * itself, so a layout that ignores them makes it fail in silence. See
+     * "Your layout has to render flash messages" in docs/configuration.md.
      */
     public string $layout = 'layout/main';
 

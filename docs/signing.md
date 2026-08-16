@@ -30,9 +30,20 @@ signature. Opting in is what closes that door.
 php spark updater:keygen
 ```
 
-Writes `writable/keys/release-signing.key` (private) and
-`release-signing.pub` (public). Use `--out` for another directory, `--bits` for
-another size (4096 by default).
+Writes two files, to two different places:
+
+| | Where | Why |
+|---|---|---|
+| `release-signing.key` | `writable/keys/` | Signs releases. Never deployed, never committed. |
+| `release-signing.pub` | `app/Config/keys/` | Verifies them. Ships with every release, since `app/` is in `SCAN_DIRS`. |
+
+**The split is the point.** The two halves have opposite requirements, so
+putting them in one directory guarantees that one of them is in the wrong
+place. `writable/` is in no release and in no git checkout — a public key
+there reaches no server, and every update is then refused.
+
+Override with `--out` (private) and `--pub-out` (public); `--bits` for another
+size, 4096 by default.
 
 **Move the private key somewhere safe and out of the project.** It must not be
 committed, and above all it must not sit on the update server — putting it
@@ -46,37 +57,25 @@ In the app's published `app/Config/Updater.php`:
 
 ```php
 public array $publicKeys = [
-    WRITEPATH . 'keys/release-signing.pub',
+    APPPATH . 'Config/keys/release-signing.pub',
 ];
 ```
 
-> **The public key has to reach the server, and `writable/` does not.** It is
-> in no release — `SCAN_DIRS` covers `app/` and `public/` — and CodeIgniter's
-> own `.gitignore` excludes it. Generating the pair into `writable/keys/` and
-> deploying normally leaves the app with no key at all, and every update is
-> then refused.
->
-> The private key is the one that must never leave your machine; the public key
-> has no secret to keep. Put it somewhere that ships:
->
-> ```php
-> public array $publicKeys = [
->     // Travels with every release, since app/ is in SCAN_DIRS.
->     APPPATH . 'Config/keys/release-signing.pub',
-> ];
-> ```
->
-> Or skip the file entirely and paste the PEM inline — there is nothing to
-> protect, and nothing left to deploy:
->
-> ```php
-> public array $publicKeys = [
->     "-----BEGIN PUBLIC KEY-----\nMIIBIjANBg…\n-----END PUBLIC KEY-----\n",
-> ];
-> ```
->
-> If a key cannot be read, the panel says so on load and names the path, rather
-> than reporting it later as an invalid signature.
+Or skip the file entirely and paste the PEM inline — a public key has no secret
+to keep, and this leaves nothing to deploy:
+
+```php
+public array $publicKeys = [
+    "-----BEGIN PUBLIC KEY-----\nMIIBIjANBg…\n-----END PUBLIC KEY-----\n",
+];
+```
+
+`updater:keygen` prints that snippet ready to paste.
+
+> Whichever you choose, the key has to be **readable on the server**. If none
+> is, the panel says so on load and names the path — it does not report it
+> later as an invalid signature, which would send you inspecting your signing
+> process instead of your deployment.
 
 Each entry is either a path to a PEM file (relative paths resolve from
 `ROOTPATH`) or the PEM contents inline. From this point on, that install only
@@ -99,8 +98,8 @@ List both keys while the changeover happens:
 
 ```php
 public array $publicKeys = [
-    WRITEPATH . 'keys/release-signing.pub',      // new
-    WRITEPATH . 'keys/release-signing-old.pub',  // retiring
+    APPPATH . 'Config/keys/release-signing.pub',      // new
+    APPPATH . 'Config/keys/release-signing-old.pub',  // retiring
 ];
 ```
 
