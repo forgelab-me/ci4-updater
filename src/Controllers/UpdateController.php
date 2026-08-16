@@ -88,6 +88,7 @@ class UpdateController extends Controller
             'cacheSize'      => $cacheSize,
             'cacheAdapter'   => basename(str_replace('\\', '/', get_class(service('cache')))),
             'upgradePending' => session()->get('upgrade_pending'),
+            'keyProblem'     => (new UpgradeManager())->publicKeyProblem(),
             'backups'        => (new UpgradeManager())->listBackups(),
             'keepBackups'    => config('Updater')->keepBackups ?? 0,
         ]);

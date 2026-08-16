@@ -24,6 +24,18 @@ having to port future changes yourself.
     <h2 class="h5 mb-0">Updates</h2>
 </div>
 
+<?php if (! empty($keyProblem)): ?>
+    <?php // No update can succeed while this holds, so it is stated on load
+          // rather than left to surface as a failed update later. ?>
+<div class="alert alert-danger d-flex align-items-start gap-2 py-2 mb-3">
+    <i class="bi bi-key-fill flex-shrink-0 mt-1"></i>
+    <div>
+        <strong>Updates cannot be applied.</strong>
+        <div class="small mt-1"><?= esc($keyProblem) ?></div>
+    </div>
+</div>
+<?php endif; ?>
+
 <?php if ($pendingCount > 0 && ! $upgradePending): ?>
 <div class="alert alert-warning d-flex align-items-center gap-2 py-2 mb-3">
     <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>

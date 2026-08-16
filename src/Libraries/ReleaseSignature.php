@@ -137,6 +137,33 @@ final class ReleaseSignature
      * Accepts either PEM contents or a path to a PEM file, so a deployment can
      * keep the key outside the document root instead of inlining it in config.
      */
+    /**
+     *
+     * @param list<string> $publicKeys
+     *
+     * @return array{usable: list<string>, unusable: list<string>}
+     */
+    public static function inspectKeys(array $publicKeys): array
+    {
+        $usable   = [];
+        $unusable = [];
+
+        foreach ($publicKeys as $key) {
+            $key = (string) $key;
+            $pem = self::readKey($key);
+
+            // Unreadable file, or readable but not a public key.
+            if ($pem === '' || ! self::isAvailable() || openssl_pkey_get_public($pem) === false) {
+                $unusable[] = $key;
+                continue;
+            }
+
+            $usable[] = $key;
+        }
+
+        return ['usable' => $usable, 'unusable' => $unusable];
+    }
+
     private static function readKey(string $keyOrPath): string
     {
         if (str_contains($keyOrPath, '-----BEGIN')) {

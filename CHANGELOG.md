@@ -4,6 +4,38 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.9.1] - 2026-08-07
+
+### Fixed
+
+- **A public key that could not be read was reported as an invalid
+  signature.** The two call for opposite fixes — deploy a file, versus rebuild
+  a release — so the wrong message sent you inspecting your signing process
+  while the actual cause was that the key had never reached the server.
+
+  The usual way in: `$publicKeys` points into `writable/`, which is where
+  `updater:keygen` writes and what the documented example showed. That
+  directory is in no release (`SCAN_DIRS` covers `app/` and `public/`) and is
+  excluded by CodeIgniter's own `.gitignore`, so a normal deploy leaves the app
+  with no key at all.
+
+  Unreadable keys are now detected before the signature is judged, and the
+  message names the path and the reason. A key that is merely one of several
+  still doesn't matter: one usable key is enough, which is what key rotation
+  depends on.
+
+- **The panel says so on load**, not only when an update is attempted. No
+  update can succeed while no key is readable, so waiting for someone to try
+  one hid the cause behind an unrelated symptom.
+
+### Documentation
+
+- `docs/signing.md` states that the public key has to be deployed and that
+  `writable/` never is, with two locations that work — `APPPATH`, which ships
+  with every release, or the PEM inline in the config. The private key is the
+  one with something to hide; the public key has nothing to protect and nothing
+  to gain from living out of reach.
+
 ## [2.9.0] - 2026-08-07
 
 Nothing here changes how an update works. It fixes the fact that a new install

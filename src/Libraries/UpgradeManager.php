@@ -116,6 +116,33 @@ class UpgradeManager
     }
 
     /**
+     * Whether this install is set to require signatures but cannot read the
+     * keys that would verify them.
+     *
+     * @return string|null An error message, or null when the keys are fine
+     */
+    public function publicKeyProblem(): ?string
+    {
+        if ($this->publicKeys === [] || ! ReleaseSignature::isAvailable()) {
+            return null;
+        }
+
+        $keys = ReleaseSignature::inspectKeys($this->publicKeys);
+
+        if ($keys['usable'] !== []) {
+            return null;
+        }
+
+        return 'Signed releases are required, but no trusted public key could be read: '
+            . implode(', ', array_map(
+                static fn (string $k): string => str_contains($k, '-----BEGIN') ? '(inline key)' : $k,
+                $keys['unusable']
+            ))
+            . '. The key has to be deployed with the app — writable/ is in no release and in no git checkout — '
+            . 'or pasted into Config\\Updater::$publicKeys as PEM. Clear $publicKeys to stop requiring signatures.';
+    }
+
+    /**
      * Enforces the signature policy: no configured key means signatures are
      * ignored entirely; one or more keys makes a valid signature mandatory.
      *
@@ -129,6 +156,14 @@ class UpgradeManager
 
         if (! ReleaseSignature::isAvailable()) {
             return 'This install requires signed releases, but the openssl extension is not available to verify them.';
+        }
+
+        // A key that cannot be read is a deployment problem, not a bad
+        // signature, and the two send you looking in opposite places. Checked
+        // first so the failure is never misattributed.
+        $keyError = $this->publicKeyProblem();
+        if ($keyError !== null) {
+            return $keyError;
         }
 
         if ($signature === null || trim($signature) === '') {

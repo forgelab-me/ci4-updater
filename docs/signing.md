@@ -50,6 +50,34 @@ public array $publicKeys = [
 ];
 ```
 
+> **The public key has to reach the server, and `writable/` does not.** It is
+> in no release — `SCAN_DIRS` covers `app/` and `public/` — and CodeIgniter's
+> own `.gitignore` excludes it. Generating the pair into `writable/keys/` and
+> deploying normally leaves the app with no key at all, and every update is
+> then refused.
+>
+> The private key is the one that must never leave your machine; the public key
+> has no secret to keep. Put it somewhere that ships:
+>
+> ```php
+> public array $publicKeys = [
+>     // Travels with every release, since app/ is in SCAN_DIRS.
+>     APPPATH . 'Config/keys/release-signing.pub',
+> ];
+> ```
+>
+> Or skip the file entirely and paste the PEM inline — there is nothing to
+> protect, and nothing left to deploy:
+>
+> ```php
+> public array $publicKeys = [
+>     "-----BEGIN PUBLIC KEY-----\nMIIBIjANBg…\n-----END PUBLIC KEY-----\n",
+> ];
+> ```
+>
+> If a key cannot be read, the panel says so on load and names the path, rather
+> than reporting it later as an invalid signature.
+
 Each entry is either a path to a PEM file (relative paths resolve from
 `ROOTPATH`) or the PEM contents inline. From this point on, that install only
 accepts signed releases.
