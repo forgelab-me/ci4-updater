@@ -246,9 +246,34 @@ class UpgradeManager
      *   error?: string
      * }
      */
-    public function prepare(string $version, string $zipUrl, ?string $manifestAssetUrl, string $token = ''): array
-    {
+    public function prepare(
+        string $version,
+        string $zipUrl,
+        ?string $manifestAssetUrl,
+        string $token = '',
+        string $serverUrl = '',
+    ): array {
         @set_time_limit(120);
+
+        // Both URLs are checked before either is fetched.
+        $zipPolicy = DownloadPolicy::forUrl($zipUrl, $serverUrl);
+
+        if (! $zipPolicy['allowed']) {
+            return ['success' => false, 'error' => $zipPolicy['error']];
+        }
+
+        $manifestPolicy = ['allowed' => true, 'sendToken' => false];
+
+        if ($manifestAssetUrl !== null && trim($manifestAssetUrl) !== '') {
+            $manifestPolicy = DownloadPolicy::forUrl($manifestAssetUrl, $serverUrl);
+
+            if (! $manifestPolicy['allowed']) {
+                return ['success' => false, 'error' => $manifestPolicy['error']];
+            }
+        }
+
+        $zipToken      = $zipPolicy['sendToken'] ? $token : '';
+        $manifestToken = $manifestPolicy['sendToken'] ? $token : '';
 
         $safe       = preg_replace('/[^a-zA-Z0-9._-]/', '', $version);
         $tmpDir     = WRITEPATH . 'tmp/update-' . $safe . '-' . time() . '/';
@@ -259,7 +284,7 @@ class UpgradeManager
             @mkdir($extractDir, 0755, true);
 
             // Download the release zip
-            $zipData = $this->httpGet($zipUrl, $token);
+            $zipData = $this->httpGet($zipUrl, $zipToken);
             if ($zipData === false || $zipData === '') {
                 return ['success' => false, 'error' => 'Could not download the release archive.'];
             }
@@ -293,12 +318,12 @@ class UpgradeManager
 
             // Fallback: download the manifest release asset
             if ((! $newManifest || empty($newManifest['files'])) && $manifestAssetUrl) {
-                $raw = $this->httpGet($manifestAssetUrl, $token);
+                $raw = $this->httpGet($manifestAssetUrl, $manifestToken);
                 if ($raw !== false) {
                     $manifestBytes = $raw;
                     $newManifest   = json_decode($raw, true);
 
-                    $rawSignature = $this->httpGet($manifestAssetUrl . '.sig', $token);
+                    $rawSignature = $this->httpGet($manifestAssetUrl . '.sig', $manifestToken);
                     $signature    = $rawSignature === false ? null : $rawSignature;
                 }
             }
@@ -1331,18 +1356,94 @@ class UpgradeManager
         return $commonPrefix;
     }
 
-    private function httpGet(string $url, string $token = ''): string|false
+    /**
+     * Fetches from the configured update server, the token attached only while
+     * the origin stays that server's.
+     */
+    public function fetchFromServer(string $url, string $token = '', string $serverUrl = ''): string|false
     {
-        $headers = "User-Agent: {$this->userAgent}\r\nAccept: */*\r\n";
-        if ($token !== '') {
-            $headers .= "Authorization: Bearer {$token}\r\n";
+        $policy = DownloadPolicy::forUrl($url, $serverUrl === '' ? $url : $serverUrl);
+
+        if (! $policy['allowed']) {
+            return false;
         }
-        $ctx = stream_context_create(['http' => [
-            'method'          => 'GET',
-            'header'          => $headers,
-            'timeout'         => 30,
-            'follow_location' => 1,
-        ]]);
-        return @file_get_contents($url, false, $ctx);
+
+        return $this->httpGet($url, $policy['sendToken'] ? $token : '');
+    }
+
+    /**
+     * Fetches a URL, following http(s) redirects by hand: the token is sent
+     * only while the origin is unchanged, which `follow_location` cannot do.
+     */
+    private function httpGet(string $url, string $token = '', int $maxHops = 5): string|false
+    {
+        $origin = DownloadPolicy::origin($url);
+
+        for ($hop = 0; $hop <= $maxHops; $hop++) {
+            $headers = "User-Agent: {$this->userAgent}\r\nAccept: */*\r\n";
+
+            if ($token !== '' && DownloadPolicy::origin($url) === $origin && $origin !== '') {
+                $headers .= "Authorization: Bearer {$token}\r\n";
+            }
+
+            $ctx = stream_context_create(['http' => [
+                'method'          => 'GET',
+                'header'          => $headers,
+                'timeout'         => 30,
+                'follow_location' => 0,
+                // A 3xx would otherwise yield false, Location unread.
+                'ignore_errors'   => true,
+            ]]);
+
+            $http_response_header = [];
+            $body                 = @file_get_contents($url, false, $ctx);
+            $status               = self::statusOf($http_response_header);
+
+            if ($status < 300 || $status > 399) {
+                return $status >= 400 ? false : $body;
+            }
+
+            $next = DownloadPolicy::resolveRedirect(self::headerValue($http_response_header, 'location'), $url);
+
+            if ($next === '') {
+                return false;
+            }
+
+            $url = $next;
+        }
+
+        return false;
+    }
+
+    /**
+     * @param list<string> $responseHeaders
+     */
+    private static function statusOf(array $responseHeaders): int
+    {
+        foreach ($responseHeaders as $line) {
+            if (preg_match('#\AHTTP/\d(?:\.\d)?\s+(\d{3})#', $line, $m) === 1) {
+                $status = (int) $m[1];
+            }
+        }
+
+        return $status ?? 0;
+    }
+
+    /**
+     * @param list<string> $responseHeaders
+     */
+    private static function headerValue(array $responseHeaders, string $name): string
+    {
+        $value = '';
+
+        foreach ($responseHeaders as $line) {
+            $parts = explode(':', $line, 2);
+
+            if (count($parts) === 2 && strtolower(trim($parts[0])) === strtolower($name)) {
+                $value = trim($parts[1]);
+            }
+        }
+
+        return $value;
     }
 }

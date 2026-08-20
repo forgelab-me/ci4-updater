@@ -4,6 +4,61 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.11.0] - 2026-08-18
+
+Four hardening changes, from a security review of the download path. Nothing
+here needs configuring, and nothing changes for an install already doing the
+right thing.
+
+### Security
+
+- **The panel's routes now carry the `csrf` filter themselves.** They download
+  a release and write it into `app/`, and a stock CodeIgniter install ships the
+  global csrf filter commented out — so the package no longer leaves that to
+  the application. Without it, an admin who merely visited a hostile page could
+  be made to download and apply a release chosen by somebody else, which with
+  `Config\Updater::$publicKeys` unset is remote code execution.
+
+  The filter you pass to `routes()` is kept alongside it, and CodeIgniter
+  de-duplicates filters, so an app that already enables csrf globally still
+  runs it once.
+
+- **Release URLs are checked before anything is fetched, and the token no
+  longer follows them anywhere.** `zip_url` and `manifest_url` arrive through
+  the panel's form, filled from whatever the update server answered. From now
+  on:
+
+  | | |
+  |---|---|
+  | Scheme | `https://` anywhere; `http://` only back to a server configured that way. `file://`, `php://`, `ftp://` and the rest are refused outright. |
+  | Token | Sent only to the configured update server's own origin. A release hosted on GitHub or an object store is fetched without it. |
+
+  Refusing `file://` closes a local-file read; pinning the token closes an
+  archive URL that quietly exfiltrated the update-server credential.
+
+- **Redirects are followed by hand, and the token is dropped when the origin
+  changes.** PHP's `follow_location` replays every request header at each hop,
+  the `Authorization` header included and whatever the new host is — one 302
+  and the token was handed to a stranger. This affected the archive download
+  and the panel's own version check, which no longer builds a stream context of
+  its own.
+
+- **The panel says so when the update server is plain HTTP.** Everything that
+  server answers is written into the application, so a cleartext connection is
+  a stranger's write access to `app/`. The documentation always said to use
+  https; now the page says it too, where someone will read it.
+
+### Upgrading
+
+Nothing to do. Two things worth knowing:
+
+- If your application posts to `/admin/updates/*` from anywhere other than the
+  panel, those requests now need a CSRF token.
+- If your update server answers a release URL on a *different* origin and
+  expects the project token with it, that token is no longer sent. Serve the
+  archive from the server's own origin, or make it reachable without the token
+  — which is what a signed release lets you do safely.
+
 ## [2.10.0] - 2026-08-07
 
 ### Changed

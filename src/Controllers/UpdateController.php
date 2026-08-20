@@ -6,6 +6,7 @@ namespace Forgelabme\Ci4Updater\Controllers;
 
 use CodeIgniter\Controller;
 use Config\Updater;
+use Forgelabme\Ci4Updater\Libraries\DownloadPolicy;
 use Forgelabme\Ci4Updater\Libraries\SettingsInterface;
 use Forgelabme\Ci4Updater\Libraries\UpdaterSettings;
 use Forgelabme\Ci4Updater\Libraries\UpgradeManager;
@@ -89,6 +90,7 @@ class UpdateController extends Controller
             'cacheAdapter'   => basename(str_replace('\\', '/', get_class(service('cache')))),
             'upgradePending' => session()->get('upgrade_pending'),
             'keyProblem'     => (new UpgradeManager())->publicKeyProblem(),
+            'serverProblem'  => $this->serverProblem(),
             'backups'        => (new UpgradeManager())->listBackups(),
             'keepBackups'    => config('Updater')->keepBackups ?? 0,
         ]);
@@ -160,6 +162,17 @@ class UpdateController extends Controller
             : 'your ' . (new \ReflectionClass($config->settingsClass))->getShortName() . ' store';
     }
 
+    /**
+     * @return string|null What is wrong with the configured update server, or
+     *                     null when nothing is
+     */
+    public function serverProblem(): ?string
+    {
+        return DownloadPolicy::serverWarning(
+            (string) $this->settings()->getSetting(Updater::SETTING_SERVER_URL, '')
+        );
+    }
+
     public function checkRemoteVersion(): \CodeIgniter\HTTP\ResponseInterface
     {
         $settings  = $this->settings();
@@ -181,17 +194,8 @@ class UpdateController extends Controller
         // see the releases in between. A feed that ignores the parameter (a
         // static latest.json, say) simply answers without those fields.
         $latestUrl = $serverUrl . '/latest.json?from=' . rawurlencode(Updater::VERSION);
-        $headers   = 'User-Agent: ' . Updater::USER_AGENT . "\r\nAccept: application/json\r\n";
-        if ($token !== '') {
-            $headers .= "Authorization: Bearer {$token}\r\n";
-        }
-        $ctx  = stream_context_create(['http' => [
-            'method'          => 'GET',
-            'header'          => $headers,
-            'timeout'         => 6,
-            'follow_location' => 1,
-        ]]);
-        $json = @file_get_contents($latestUrl, false, $ctx);
+
+        $json = (new UpgradeManager())->fetchFromServer($latestUrl, $token, $serverUrl);
 
         if ($json === false) {
             return $this->response->setJSON(['error' => "Could not reach the update server ({$latestUrl})."]);
@@ -249,8 +253,9 @@ class UpdateController extends Controller
             return redirect()->to('/admin/updates')->with('error', 'Missing release data.');
         }
 
-        $settings = $this->settings();
-        $token    = trim((string) $settings->getSetting(Updater::SETTING_SERVER_TOKEN, ''));
+        $settings  = $this->settings();
+        $token     = trim((string) $settings->getSetting(Updater::SETTING_SERVER_TOKEN, ''));
+        $serverUrl = trim((string) $settings->getSetting(Updater::SETTING_SERVER_URL, ''));
 
         $manager    = new UpgradeManager();
         $permIssues = $manager->checkPermissions();
@@ -258,7 +263,9 @@ class UpdateController extends Controller
             return redirect()->to('/admin/updates')->with('error', 'Insufficient permissions: ' . implode(', ', $permIssues));
         }
 
-        $result = $manager->prepare($version, $zipUrl, $manifestUrl, $token);
+        // The configured server decides what may be fetched, and what sees
+        // the token.
+        $result = $manager->prepare($version, $zipUrl, $manifestUrl, $token, $serverUrl);
         if (! $result['success']) {
             return redirect()->to('/admin/updates')->with('error', 'Preparation failed: ' . $result['error']);
         }

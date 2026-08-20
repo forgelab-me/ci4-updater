@@ -33,16 +33,49 @@ Not on Shield? Write a small filter that checks the current user's
 role/permission the same way the rest of your admin area does, and pass its
 alias to `routes()`.
 
+## CSRF is added for you
+
+`routes()` puts the `csrf` filter on its own group, alongside whatever filter
+you passed. This is not left to the application on purpose: a stock CodeIgniter
+install ships the global csrf filter commented out, and these routes write PHP
+into `app/` — an admin who merely visits a hostile page would otherwise be
+enough to apply a release somebody else chose.
+
+CodeIgniter de-duplicates filters, so enabling csrf globally as well is
+harmless. If your own code posts to `/admin/updates/*`, it needs a token like
+any other form; the panel's own JavaScript reads it from the `csrf-field` and
+`csrf-hash` meta tags the view renders.
+
 ## The update server is a trust root
 
 Everything downloaded and written to disk is only as trustworthy as that
 connection:
 
-- Always use `https://` for `update_server_url`.
+- Always use `https://` for `update_server_url`. The panel warns when it is
+  not: everything that server answers is written into this application, so a
+  cleartext connection is a stranger's write access to `app/`.
 - Treat `update_server_token` as a secret. With the default store that means
   making sure `writable/updater_settings.json` isn't web-accessible or
   world-readable; with a [custom store](configuration.md#custom-settings-storage),
   wherever you route it.
+
+### What may be downloaded, and what sees the token
+
+A release URL reaches this app through the panel's form, filled from whatever
+the update server answered — so it is checked before anything is fetched:
+
+| | |
+|---|---|
+| Scheme | `https://` anywhere; `http://` only back to a server configured that way. Anything else — `file://`, `php://`, `ftp://` — is refused, so a release URL can never become a local-file read. |
+| Token | Sent only to the configured server's own origin. A release hosted elsewhere (GitHub assets, an object store) is fetched without it. |
+
+Redirects are followed by hand for the same reason: PHP's `follow_location`
+replays the `Authorization` header at every hop whatever the new host is, so
+one 302 would hand the token to a stranger. The token is dropped as soon as the
+origin changes.
+
+An archive served from another origin therefore has to be reachable without the
+token. Signing releases is what makes that safe to arrange.
 
 ### The scope of an update comes from the server too
 

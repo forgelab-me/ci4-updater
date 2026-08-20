@@ -36,6 +36,16 @@ having to port future changes yourself.
 </div>
 <?php endif; ?>
 
+<?php if (! empty($serverProblem)): ?>
+<div class="alert alert-warning d-flex align-items-start gap-2 py-2 mb-3">
+    <i class="bi bi-shield-exclamation flex-shrink-0 mt-1"></i>
+    <div>
+        <strong>This update server is not trustworthy over this connection.</strong>
+        <div class="small mt-1"><?= esc($serverProblem) ?></div>
+    </div>
+</div>
+<?php endif; ?>
+
 <?php if ($pendingCount > 0 && ! $upgradePending): ?>
 <div class="alert alert-warning d-flex align-items-center gap-2 py-2 mb-3">
     <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>

@@ -25,10 +25,16 @@ class Updater
         $prefix = trim($config['prefix'] ?? 'admin', '/');
         $filter = array_key_exists('filter', $config) ? $config['filter'] : 'admin';
 
-        $groupOptions = ['namespace' => 'Forgelabme\\Ci4Updater\\Controllers'];
-        if ($filter !== null && $filter !== '') {
-            $groupOptions['filter'] = $filter;
-        }
+        // csrf always applies, on top of whatever the app asked for.
+        $filters = array_values(array_filter(
+            array_merge((array) $filter, ['csrf']),
+            static fn ($alias): bool => is_string($alias) && $alias !== '',
+        ));
+
+        $groupOptions = [
+            'namespace' => 'Forgelabme\\Ci4Updater\\Controllers',
+            'filter'    => $filters,
+        ];
 
         $routes->group($prefix, $groupOptions, static function (RouteCollection $routes): void {
             $routes->get('updates', 'UpdateController::index');
