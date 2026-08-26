@@ -103,12 +103,13 @@ advertises the new version and URLs. See [Update server](update-server.md).
    signature checked, its requirements checked against the running PHP, and its
    manifest diffed against a freshly computed manifest of the live install. The admin sees added / modified / deleted / unchanged counts and
    the full file list before anything is written.
-3. **Apply** — every file about to be overwritten or deleted is copied to
+3. **Apply** — a maintenance window opens (see the README), and every file
+   about to be overwritten or deleted is copied to
    `writable/backups/backup-<timestamp>/` first. Then added and modified
    files are written (each SHA-256-verified against the manifest first),
    removed files deleted, pending migrations run via `migrate:latest`, and
    the cache cleared.
-4. **Cleanup** — temp files removed, `opcache_reset()` called so the new code
+4. **Cleanup** — the maintenance window closes, temp files removed, `opcache_reset()` called so the new code
    takes effect without a server restart (when OPcache is enabled).
 
 Cancelling at step 2 removes the temp directory and touches nothing.

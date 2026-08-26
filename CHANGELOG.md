@@ -4,6 +4,52 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.14.0] - 2026-08-18
+
+### Added
+
+- **A maintenance window while an update writes.** Applying a release is not
+  atomic: between the first file written and the last root swapped, a request
+  arriving sees a tree that is half one version and half the other. The window
+  is now held open across that stretch and closed when it ends — including when
+  applying fails.
+
+  Opening it costs nothing on its own. What answers 503 is a filter you
+  register:
+
+  ```php
+  // app/Config/Filters.php
+  public array $aliases = [
+      'maintenance' => \Forgelabme\Ci4Updater\Filters\Maintenance::class,
+  ];
+
+  public array $globals = [
+      'before' => [
+          'maintenance' => ['except' => ['admin/updates', 'admin/updates/*']],
+      ],
+  ];
+  ```
+
+  Exempting the panel is deliberate: an admin has to be able to reach it while
+  the window is open, which is exactly when something may need rolling back.
+  The response carries `Retry-After`, and `Config\Updater::$maintenanceView`
+  replaces the built-in page.
+
+- **The window expires on its own** — ten minutes by default,
+  `Config\Updater::$maintenanceTtl`. An update killed halfway would otherwise
+  leave the application answering 503 until somebody deleted
+  `writable/updater-maintenance.json` by hand.
+
+- **`php spark updater:maintenance [--on] [--off] [--for <seconds>]`**, for the
+  work around an update rather than the update itself — a manual `composer
+  install`, a schema change, a restore. With no options it reports, and exits
+  `2` while the window is open.
+
+### Upgrading
+
+Nothing to do. Without the filter registered nothing changes; with it,
+requests are held off for the seconds an update spends writing.
+
 ## [2.13.0] - 2026-08-18
 
 ### Added

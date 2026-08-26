@@ -83,6 +83,7 @@ php spark updater:check          # what is the server offering?
 php spark updater:apply          # download, show the diff, ask, apply
 php spark updater:apply --dry-run
 php spark updater:apply --yes    # unattended
+php spark updater:maintenance    # is a window open? --on / --off to move it
 ```
 
 `updater:check` reports through its exit code as well: `0` up to date, `2` an
@@ -97,6 +98,28 @@ php spark updater:check --quiet || php spark updater:apply --yes
 key cannot be read, backs up every file it overwrites, runs pending migrations,
 and prunes old backups — the same steps, in the same order, as the panel.
 Restoring a backup stays a panel action.
+
+## While an update writes
+
+Applying a release is not atomic. Register the filter and requests get a 503
+for the seconds it takes, instead of a tree that is half one version:
+
+```php
+// app/Config/Filters.php
+public array $aliases = [
+    'maintenance' => \Forgelabme\Ci4Updater\Filters\Maintenance::class,
+];
+
+public array $globals = [
+    'before' => [
+        'maintenance' => ['except' => ['admin/updates', 'admin/updates/*']],
+    ],
+];
+```
+
+Exempt the panel, as above: it is what you need when something has to be rolled
+back. The window closes when the writing ends, and expires on its own after
+`Config\Updater::$maintenanceTtl` seconds if an update never gets that far.
 
 ## Security
 

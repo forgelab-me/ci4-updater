@@ -630,6 +630,37 @@ class UpgradeManager
             ));
         }
 
+        // Requests arriving mid-write would see a half-updated tree, so the
+        // window is held open until the last root is in place.
+        MaintenanceWindow::open('Applying ' . ($version ?? 'an update'));
+
+        try {
+            return $this->writeRelease($extractDir, $diff, $inPlace, $swapping, $newManifest, $version, $roots, $beforeSwap);
+        } finally {
+            MaintenanceWindow::close();
+        }
+    }
+
+    /**
+     * The writing phase: backup, in-place files, migrations, swapped roots.
+     *
+     * @param array<string, list<string>>  $inPlace
+     * @param list<string>                 $swapping
+     * @param array<string, string>        $newManifest
+     * @param list<string>                 $roots
+     *
+     * @return array{success: bool, backup_dir?: string, updated?: int, added?: int, modified?: int, deleted?: int, error?: string}
+     */
+    private function writeRelease(
+        string $extractDir,
+        array $diff,
+        array $inPlace,
+        array $swapping,
+        array $newManifest,
+        ?string $version,
+        array $roots,
+        ?callable $beforeSwap,
+    ): array {
         $base       = ROOTPATH;
         $backupName = 'backup-' . date('Y-m-d-His');
         $backupDir  = WRITEPATH . 'backups/' . $backupName . '/';

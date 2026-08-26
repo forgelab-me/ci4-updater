@@ -132,6 +132,25 @@ class Updater extends BaseConfig
     public int $keepBackups = 5;
 
     /**
+     * How long the maintenance window an update opens stays valid.
+     *
+     * It is closed as soon as the writing is done. This is the ceiling for the
+     * case where that never happens — a killed process, a fatal error — so the
+     * application comes back on its own instead of answering 503 until someone
+     * deletes writable/updater-maintenance.json.
+     */
+    public int $maintenanceTtl = 600;
+
+    /**
+     * View rendered with the 503 while the window is open. Null uses a plain
+     * built-in page.
+     *
+     * Keep whatever it renders free of database calls: an update may be part
+     * way through a migration when it is shown.
+     */
+    public ?string $maintenanceView = null;
+
+    /**
      * Public keys trusted to sign releases, as PEM contents or paths to PEM
      * files (a relative path is resolved from ROOTPATH).
      *
