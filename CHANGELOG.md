@@ -4,6 +4,36 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.13.0] - 2026-08-18
+
+### Added
+
+- **A release can say what it needs to run**, and an installation that does not
+  qualify refuses it while it is still whole. Until now a release built for a
+  newer PHP installed cleanly and took the application down with it — panel
+  included, which is also the way back.
+
+  ```json
+  "requires": { "php": "^8.2", "extensions": ["intl", "zip"] }
+  ```
+
+  `update:manifest` fills this in from your `composer.json` — the `php`
+  constraint and every `ext-*` you require — so a release declares the truth
+  without anyone maintaining a second list. `--requires-php`, `--requires-ext`
+  and `--no-requires` override it.
+
+  Constraints are read as `^8.2`, `~8.2`, `>=8.2`, `>=8.2 <9.0`, `8.2` and
+  friends. One this installer cannot read is refused rather than ignored: a
+  constraint that is not understood is not a constraint that is honoured.
+
+  A manifest without `requires` installs exactly as before, and the check runs
+  on the signed manifest — after the signature, before the diff.
+
+### Upgrading
+
+Nothing to do. Regenerate your manifests to start declaring requirements;
+releases already published keep working untouched.
+
 ## [2.12.0] - 2026-08-18
 
 ### Added

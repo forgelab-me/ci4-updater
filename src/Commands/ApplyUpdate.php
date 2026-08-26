@@ -8,6 +8,7 @@ use CodeIgniter\CLI\BaseCommand;
 use CodeIgniter\CLI\CLI;
 use Config\Updater;
 use Forgelabme\Ci4Updater\Libraries\ReleaseFeed;
+use Forgelabme\Ci4Updater\Libraries\ReleaseRequirements;
 use Forgelabme\Ci4Updater\Libraries\UpgradeManager;
 
 /**
@@ -128,6 +129,11 @@ class ApplyUpdate extends BaseCommand
         CLI::newLine();
         CLI::write('Covers  : ' . implode(', ', $prepared['roots'] ?? []), 'white');
         CLI::write('Signed  : ' . ($prepared['signed'] ? 'yes' : 'no'), $prepared['signed'] ? 'green' : 'yellow');
+
+        if (($prepared['requires'] ?? []) !== []) {
+            CLI::write('Requires: ' . ReleaseRequirements::describe($prepared['requires']), 'white');
+        }
+
         CLI::write(sprintf(
             'Changes : %d added, %d modified, %d deleted, %d unchanged',
             count($diff['added']),

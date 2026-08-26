@@ -117,8 +117,9 @@ refused from then on. See [Signing releases](docs/signing.md) and
 
 1. Before cutting a release you run `php spark update:manifest`. It hashes
    every file in `SCAN_DIRS` (SHA-256), writes `manifest.json` — recording
-   which directories the release covers — and bundles a
-   `release_X.Y.Z_*.zip` with the manifest embedded.
+   which directories the release covers, and what it needs to run, read from
+   `composer.json` — and bundles a `release_X.Y.Z_*.zip` with the manifest
+   embedded.
 2. You publish that ZIP and a `latest.json` describing it —
    [`ci4-update-server`](https://github.com/forgelab-me/ci4-update-server) is
    a ready-made server for this, or use GitHub Releases.

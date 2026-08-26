@@ -7,6 +7,7 @@ namespace Forgelabme\Ci4Updater\Commands;
 use CodeIgniter\CLI\BaseCommand;
 use CodeIgniter\CLI\CLI;
 use Config\Updater;
+use Forgelabme\Ci4Updater\Libraries\ReleaseRequirements;
 use Forgelabme\Ci4Updater\Libraries\ReleaseScope;
 use Forgelabme\Ci4Updater\Libraries\ReleaseSignature;
 
@@ -23,12 +24,15 @@ class GenerateManifest extends BaseCommand
     protected $group       = 'Update';
     protected $name        = 'update:manifest';
     protected $description = 'Generates manifest.json (SHA-256 hashes) and a release ZIP for the self-update system.';
-    protected $usage       = 'update:manifest [--roots <a,b>] [--sign <private-key>] [--passphrase <passphrase>]';
+    protected $usage       = 'update:manifest [--roots <a,b>] [--sign <private-key>] [--passphrase <passphrase>] [--requires-php <constraint>] [--requires-ext <a,b>] [--no-requires]';
 
     protected $options = [
-        '--roots'      => 'Comma-separated top-level directories this release covers. Defaults to Config\Updater::SCAN_DIRS.',
-        '--sign'       => 'Sign the manifest with this private key (PEM path). Required by apps that set Config\Updater::$publicKeys.',
-        '--passphrase' => 'Passphrase protecting the private key, if any.',
+        '--roots'        => 'Comma-separated top-level directories this release covers. Defaults to Config\Updater::SCAN_DIRS.',
+        '--sign'         => 'Sign the manifest with this private key (PEM path). Required by apps that set Config\Updater::$publicKeys.',
+        '--passphrase'   => 'Passphrase protecting the private key, if any.',
+        '--requires-php' => 'PHP constraint this release needs, e.g. "^8.2". Defaults to composer.json.',
+        '--requires-ext' => 'Comma-separated PHP extensions this release needs. Defaults to composer.json.',
+        '--no-requires'  => 'Declare no requirements at all.',
     ];
 
     public function run(array $params): void
@@ -97,6 +101,15 @@ class GenerateManifest extends BaseCommand
             'files'        => $files,
         ];
 
+        $requires = $this->resolveRequirements($base);
+
+        if ($requires !== []) {
+            // Before `files`, so it is readable at the top of the manifest.
+            $manifest = array_slice($manifest, 0, 4, true)
+                + ['requires' => $requires]
+                + array_slice($manifest, 4, null, true);
+        }
+
         $manifestPath = $base . 'manifest.json';
         $manifestJson = json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
         file_put_contents($manifestPath, $manifestJson);
@@ -127,6 +140,11 @@ class GenerateManifest extends BaseCommand
         CLI::write('manifest.json generated successfully.', 'green');
         CLI::write('Version : ' . $manifest['version'], 'white');
         CLI::write('Covers  : ' . implode(', ', $scanDirs), 'white');
+
+        if (isset($manifest['requires'])) {
+            CLI::write('Requires: ' . ReleaseRequirements::describe($manifest['requires']), 'white');
+        }
+
         CLI::write('Files   : ' . count($files), 'white');
         CLI::write('Manifest: ' . $manifestPath, 'white');
         CLI::write('Release : ' . $zipPath, 'white');
@@ -142,6 +160,77 @@ class GenerateManifest extends BaseCommand
         CLI::write('  1. Create a GitHub release for v' . $manifest['version'], 'white');
         CLI::write('  2. Attach ' . basename($zipPath) . ' as a release asset (it embeds manifest.json'
             . ($signaturePath !== null ? ' and its signature)' : ')'), 'white');
+    }
+
+    /**
+     * What this release needs to run, read from composer.json unless the
+     * options say otherwise.
+     *
+     * @return array<string, mixed>
+     */
+    private function resolveRequirements(string $base): array
+    {
+        if (CLI::getOption('no-requires') !== null) {
+            return [];
+        }
+
+        $php        = (string) (CLI::getOption('requires-php') ?: '');
+        $extensions = (string) (CLI::getOption('requires-ext') ?: '');
+
+        $composer = $php !== '' && $extensions !== '' ? [] : $this->readComposerRequirements($base);
+
+        if ($php === '') {
+            $php = $composer['php'] ?? '';
+        }
+
+        $list = $extensions !== ''
+            ? array_values(array_filter(array_map('trim', explode(',', $extensions))))
+            : ($composer['extensions'] ?? []);
+
+        $requires = [];
+
+        if ($php !== '') {
+            $requires['php'] = $php;
+        }
+
+        if ($list !== []) {
+            $requires['extensions'] = $list;
+        }
+
+        return $requires;
+    }
+
+    /**
+     * @return array{php?: string, extensions?: list<string>}
+     */
+    private function readComposerRequirements(string $base): array
+    {
+        $path = $base . 'composer.json';
+
+        if (! is_file($path)) {
+            return [];
+        }
+
+        $data = json_decode((string) file_get_contents($path), true);
+
+        if (! is_array($data) || ! is_array($data['require'] ?? null)) {
+            return [];
+        }
+
+        $found = [];
+
+        foreach ($data['require'] as $package => $constraint) {
+            if ($package === 'php' && is_string($constraint)) {
+                $found['php'] = $constraint;
+                continue;
+            }
+
+            if (is_string($package) && str_starts_with($package, 'ext-')) {
+                $found['extensions'][] = substr($package, 4);
+            }
+        }
+
+        return $found;
     }
 
     /**

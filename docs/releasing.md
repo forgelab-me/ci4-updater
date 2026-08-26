@@ -30,6 +30,29 @@ php spark update:manifest --sign /secure/path/release-signing.key
 That adds `manifest.json.sig` to the archive. See
 [Signing releases](signing.md).
 
+### What the release needs to run
+
+The manifest records the PHP version and extensions the release requires, read
+from your `composer.json` — its `php` constraint and every `ext-*` in
+`require`:
+
+```json
+"requires": { "php": "^8.2", "extensions": ["intl", "zip"] }
+```
+
+An installation that does not qualify refuses the release before touching
+anything, instead of installing code its PHP cannot run. Override or drop it
+per release:
+
+```bash
+php spark update:manifest --requires-php ">=8.2 <9.0" --requires-ext intl,zip
+php spark update:manifest --no-requires
+```
+
+Constraints are read as `^8.2`, `~8.2`, `>=8.2`, `>=8.2 <9.0` or a bare `8.2`.
+Composer's `||` is not supported — a constraint this installer cannot read is
+refused rather than ignored, so keep to those forms.
+
 To cover something other than `SCAN_DIRS` for one release — shipping `vendor/`
 when dependencies changed, for instance:
 
@@ -76,9 +99,9 @@ advertises the new version and URLs. See [Update server](update-server.md).
 
 1. **Check** — the panel fetches `{update_server_url}/latest.json` and
    compares `version` against the installed one.
-2. **Download & diff** — the ZIP is fetched to `writable/tmp/`, extracted,
-   and its manifest diffed against a freshly computed manifest of the live
-   install. The admin sees added / modified / deleted / unchanged counts and
+2. **Download & diff** — the ZIP is fetched to `writable/tmp/`, extracted, its
+   signature checked, its requirements checked against the running PHP, and its
+   manifest diffed against a freshly computed manifest of the live install. The admin sees added / modified / deleted / unchanged counts and
    the full file list before anything is written.
 3. **Apply** — every file about to be overwritten or deleted is copied to
    `writable/backups/backup-<timestamp>/` first. Then added and modified

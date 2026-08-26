@@ -346,6 +346,16 @@ class UpgradeManager
                 return ['success' => false, 'error' => $signatureError];
             }
 
+            // Checked on the signed manifest, and before the diff: a release
+            // this machine cannot run is refused while the application is
+            // still whole.
+            $requirementError = ReleaseRequirements::check($newManifest);
+            if ($requirementError !== null) {
+                $this->cleanup($tmpDir);
+
+                return ['success' => false, 'error' => $requirementError];
+            }
+
             // The scope comes from the release, so it is validated before it is
             // used to decide what gets scanned — and therefore what a missing
             // manifest entry means.
@@ -381,6 +391,7 @@ class UpgradeManager
                 'diff'       => $diff,
                 'manifest'   => $newManifest['files'],
                 'roots'      => $roots,
+                'requires'   => is_array($newManifest['requires'] ?? null) ? $newManifest['requires'] : [],
                 'signed'     => $this->publicKeys !== [] && $signature !== null,
             ];
         } catch (\Throwable $e) {
