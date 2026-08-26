@@ -109,7 +109,10 @@ advertises the new version and URLs. See [Update server](update-server.md).
    files are written (each SHA-256-verified against the manifest first),
    removed files deleted, pending migrations run via `migrate:latest`, and
    the cache cleared.
-4. **Cleanup** — the maintenance window closes, temp files removed, `opcache_reset()` called so the new code
+4. **Verify** — every file just written is hashed again and compared to the
+   manifest, and every file just deleted is checked to be gone. Drift is
+   reported with the backup to restore; it does not roll anything back.
+5. **Cleanup** — the maintenance window closes, temp files removed, `opcache_reset()` called so the new code
    takes effect without a server restart (when OPcache is enabled).
 
 Cancelling at step 2 removes the temp directory and touches nothing.

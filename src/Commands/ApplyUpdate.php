@@ -9,6 +9,7 @@ use CodeIgniter\CLI\CLI;
 use Config\Updater;
 use Forgelabme\Ci4Updater\Libraries\ReleaseFeed;
 use Forgelabme\Ci4Updater\Libraries\ReleaseRequirements;
+use Forgelabme\Ci4Updater\Libraries\ReleaseVerification;
 use Forgelabme\Ci4Updater\Libraries\UpgradeManager;
 
 /**
@@ -217,6 +218,18 @@ class ApplyUpdate extends BaseCommand
 
         if ($pruned['deleted'] !== []) {
             CLI::write('Pruned  : ' . count($pruned['deleted']) . ' old backup(s)', 'white');
+        }
+
+        $drift = $result['verified']['drift'] ?? [];
+
+        if ($drift !== []) {
+            CLI::newLine();
+            CLI::error(count($drift) . ' file(s) do not match the manifest after writing:');
+            CLI::write('  ' . ReleaseVerification::describe($drift), 'red');
+            CLI::write('  Restore writable/backups/' . basename($result['backup_dir'])
+                . ' from the panel if the install is unusable.', 'yellow');
+
+            return EXIT_ERROR;
         }
 
         if ($migrationError !== null) {

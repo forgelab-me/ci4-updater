@@ -36,6 +36,9 @@ class UpgradeManager
     /** How many backups to retain; 0 keeps everything. */
     private int $keepBackups;
 
+    /** Whether what was written is read back and compared to the manifest. */
+    private bool $verifyAfterApply;
+
     /**
      * @param list<string>|null $publicKeys   Overrides Config\Updater::$publicKeys (mainly for tests)
      * @param int|null          $keepBackups  Overrides Config\Updater::$keepBackups
@@ -54,7 +57,8 @@ class UpgradeManager
         $this->userAgent    = Updater::USER_AGENT;
         $this->publicKeys   = $publicKeys ?? self::configuredPublicKeys();
         $this->keepBackups  = $keepBackups ?? self::configuredInt('keepBackups', 5);
-        $this->allowedRoots = ReleaseScope::normalize($allowedRoots ?? self::configuredAllowedRoots());
+        $this->allowedRoots     = ReleaseScope::normalize($allowedRoots ?? self::configuredAllowedRoots());
+        $this->verifyAfterApply = self::configuredBool('verifyAfterApply', true);
 
         // An empty policy means "whatever this app builds for itself".
         if ($this->allowedRoots === []) {
@@ -92,6 +96,19 @@ class UpgradeManager
             $config = config('Updater');
 
             if (is_object($config) && property_exists($config, $property) && is_int($config->{$property})) {
+                return $config->{$property};
+            }
+        }
+
+        return $default;
+    }
+
+    private static function configuredBool(string $property, bool $default): bool
+    {
+        if (function_exists('config')) {
+            $config = config('Updater');
+
+            if (is_object($config) && property_exists($config, $property) && is_bool($config->{$property})) {
                 return $config->{$property};
             }
         }
@@ -779,15 +796,46 @@ class UpgradeManager
             @opcache_reset();
         }
 
+        $verified = $this->verifyWritten($newManifest, $inPlace, $swapping);
+
         return [
             'success'    => true,
             'backup_dir' => $backupDir,
             'updated'    => $updated,
+            'verified'   => $verified,
             'added'      => count($diff['added']),
             'modified'   => count($diff['modified']),
             'deleted'    => count($diff['deleted']),
             'swapped'    => $swapping,
         ];
+    }
+
+    /**
+     * Reads back what was just written and compares it to the manifest.
+     *
+     * @param array<string, string>       $newManifest
+     * @param array<string, list<string>> $inPlace
+     * @param list<string>                $swapping
+     *
+     * @return array{checked: int, drift: list<array{path: string, problem: string}>}
+     */
+    private function verifyWritten(array $newManifest, array $inPlace, array $swapping): array
+    {
+        if (! $this->verifyAfterApply || $newManifest === []) {
+            return ['checked' => 0, 'drift' => []];
+        }
+
+        $written = array_merge($inPlace['added'], $inPlace['modified']);
+
+        // A swapped root was replaced whole, so what it should now hold is
+        // every manifest entry under it.
+        foreach (array_keys($newManifest) as $path) {
+            if (in_array(explode('/', (string) $path)[0], $swapping, true)) {
+                $written[] = (string) $path;
+            }
+        }
+
+        return ReleaseVerification::check(ROOTPATH, $newManifest, $written, $inPlace['deleted']);
     }
 
     /**

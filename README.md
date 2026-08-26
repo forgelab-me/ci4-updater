@@ -96,7 +96,8 @@ php spark updater:check --quiet || php spark updater:apply --yes
 
 `updater:apply` refuses to start when signatures are required and the public
 key cannot be read, backs up every file it overwrites, runs pending migrations,
-and prunes old backups — the same steps, in the same order, as the panel.
+reads back what it wrote to check it against the manifest, and prunes old
+backups — the same steps, in the same order, as the panel.
 Restoring a backup stays a panel action.
 
 ## While an update writes

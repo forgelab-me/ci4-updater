@@ -8,6 +8,7 @@ use CodeIgniter\Controller;
 use Config\Updater;
 use Forgelabme\Ci4Updater\Libraries\DownloadPolicy;
 use Forgelabme\Ci4Updater\Libraries\ReleaseFeed;
+use Forgelabme\Ci4Updater\Libraries\ReleaseVerification;
 use Forgelabme\Ci4Updater\Libraries\SettingsInterface;
 use Forgelabme\Ci4Updater\Libraries\UpdaterSettings;
 use Forgelabme\Ci4Updater\Libraries\UpgradeManager;
@@ -332,6 +333,15 @@ class UpdateController extends Controller
         }
         if ($migrationError) {
             $msg .= ' — Warning: migrations: ' . $migrationError;
+        }
+
+        $drift = $result['verified']['drift'] ?? [];
+
+        if ($drift !== []) {
+            return redirect()->to('/admin/updates')->with('error', $msg . ' — ' . count($drift)
+                . ' file(s) do not match the manifest after writing: '
+                . ReleaseVerification::describe($drift)
+                . '. Restore the backup above if the install is unusable.');
         }
 
         return redirect()->to('/admin/updates')->with('success', $msg);

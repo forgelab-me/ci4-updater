@@ -4,6 +4,35 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.16.0] - 2026-08-18
+
+### Added
+
+- **What an update wrote is read back before it reports success.** Every file
+  it added or modified is hashed again on disk and compared to the manifest,
+  every file it deleted is checked to be gone, and a swapped root is checked
+  entry by entry.
+
+  The hashes checked before writing say the archive was intact; these say the
+  files are. Between the two sit a disk that filled up, a copy that stopped
+  half way, a permission that refused quietly, and an opcache serving something
+  else.
+
+  Drift is reported, not acted on: the files *are* written, so the panel says
+  which ones do not match and names the backup to restore, and
+  `updater:apply` prints them and exits non-zero. Rolling back automatically
+  would mean a false positive could undo a good update, on its own, with nobody
+  watching.
+
+  `Config\Updater::$verifyAfterApply` turns it off — worth it for a tree large
+  enough that a second pass over `vendor/` hurts, at the price of a partial
+  write being reported as a success.
+
+### Upgrading
+
+Nothing to do. A release whose manifest carries no hashes — anything built
+before 2.6 — has nothing to check and is applied as before.
+
 ## [2.15.0] - 2026-08-18
 
 ### Added

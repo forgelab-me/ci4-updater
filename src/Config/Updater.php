@@ -132,6 +132,17 @@ class Updater extends BaseConfig
     public int $keepBackups = 5;
 
     /**
+     * Whether what an update wrote is read back and compared to the manifest
+     * before it reports success.
+     *
+     * The cost is one SHA-256 per file the update touched. Turn it off for a
+     * tree large enough that the second pass hurts — a release shipping
+     * vendor/, typically — and accept that a partial write would then be
+     * reported as a success.
+     */
+    public bool $verifyAfterApply = true;
+
+    /**
      * How long the maintenance window an update opens stays valid.
      *
      * It is closed as soon as the writing is done. This is the ceiling for the
