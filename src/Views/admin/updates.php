@@ -385,7 +385,12 @@ having to port future changes yourself.
                             . ($b['has_manifest'] ? ', and files it added will be removed' : '')
                             . '.\n\n';
 
-                        if ($b['migrations'] > 0) {
+                        if ($b['batch'] !== null) {
+                            $warning .= 'That update ran migrations. Tick the box to run their down() '
+                                . 'methods as part of this restore — dropping whatever they added, data '
+                                . 'included. Leave it unticked and the schema stays ahead of the restored '
+                                . 'code.\n\n';
+                        } elseif ($b['migrations'] > 0) {
                             $warning .= 'WARNING: that update shipped ' . (int) $b['migrations'] . ' migration file(s). '
                                 . 'Restoring does NOT roll the database back, so your schema will stay ahead '
                                 . 'of the restored code. Revert those migrations yourself if needed.\n\n';
@@ -398,6 +403,15 @@ having to port future changes yourself.
                     <form method="post" action="/admin/updates/rollback" class="d-inline">
                         <?= csrf_field() ?>
                         <input type="hidden" name="backup" value="<?= esc($b['name']) ?>">
+                        <?php if ($b['batch'] !== null): ?>
+                            <div class="form-check form-check-inline small me-1" title="Runs the down() method of every migration that update ran, before the files are restored.">
+                                <input class="form-check-input" type="checkbox" value="1"
+                                       name="revert_migrations" id="revert-<?= esc($b['name']) ?>">
+                                <label class="form-check-label text-warning" for="revert-<?= esc($b['name']) ?>">
+                                    revert migrations
+                                </label>
+                            </div>
+                        <?php endif; ?>
                         <button type="submit" class="btn btn-sm btn-outline-warning"
                                 onclick="return confirm('<?= $warning ?>')">
                             <i class="bi bi-arrow-counterclockwise me-1"></i>Restore

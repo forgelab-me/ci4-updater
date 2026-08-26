@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.15.0] - 2026-08-18
+
+### Added
+
+- **A rollback can revert the migrations the update ran.** Applying records the
+  batch it created; restoring that backup offers a *revert migrations* box, and
+  ticking it runs the `down()` side of exactly that batch.
+
+  It runs **before** the files are put back, which is the only order that can
+  work: restoring deletes the update's migration files, and a `down()` cannot
+  run from a file that is no longer there. If reverting fails, nothing is
+  restored — a schema that would not come back is worse undone by halves.
+
+  Unticked, a restore behaves exactly as it always has: code goes back, the
+  database stays where it is.
+
+### Notes
+
+- Only offered for updates applied from 2.15 onwards, since the batch has to
+  have been recorded. Older backups still restore, without the box.
+- `down()` drops what `up()` created, data included, and plenty of migrations
+  have no meaningful `down()` at all. The box is unticked by default, and the
+  confirmation says what it does. Expand/contract remains the way to make a
+  release rollback-safe — see [Releasing](docs/releasing.md).
+
 ## [2.14.0] - 2026-08-18
 
 ### Added

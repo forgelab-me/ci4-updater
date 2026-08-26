@@ -266,12 +266,23 @@ class UpdateController extends Controller
         // boot filters and models against the old schema and could 500 on the
         // very page that was meant to migrate it.
         $migrationError = null;
-        $migrate        = static function () use (&$migrationError): void {
+        $migrate        = static function () use (&$migrationError): array {
+            $runner = service('migrations');
+            $before = self::lastBatch($runner);
+
             try {
-                service('migrations')->latest();
+                $runner->latest();
             } catch (\Throwable $e) {
                 $migrationError = $e->getMessage();
             }
+
+            $after = self::lastBatch($runner);
+
+            // Recorded so a rollback can offer to run the down() side of
+            // exactly the batch this update created.
+            return $after > $before
+                ? ['migrations' => ['batch_before' => $before, 'batch_after' => $after]]
+                : [];
         };
 
         $manager = new UpgradeManager();
@@ -368,14 +379,46 @@ class UpdateController extends Controller
     }
 
     /**
+     * The batch number the migration runner is on, or 0 when it cannot say.
+     */
+    private static function lastBatch(object $runner): int
+    {
+        try {
+            return method_exists($runner, 'getLastBatch') ? (int) $runner->getLastBatch() : 0;
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
+
+    /**
      * Restores a backup taken before an update was applied.
      */
     public function rollback(): \CodeIgniter\HTTP\RedirectResponse
     {
-        $name = trim((string) ($this->request->getPost('backup') ?? ''));
+        $name     = trim((string) ($this->request->getPost('backup') ?? ''));
+        $regress  = (bool) $this->request->getPost('revert_migrations');
+        $reverted = 0;
 
         $manager = new UpgradeManager();
-        $result  = $manager->restoreBackup($name);
+
+        $revert = static function (?array $batch) use ($regress, &$reverted): ?string {
+            if (! $regress || $batch === null) {
+                return null;
+            }
+
+            try {
+                service('migrations')->regress($batch['batch_before']);
+                $reverted = $batch['batch_after'] - $batch['batch_before'];
+            } catch (\Throwable $e) {
+                // Refusing here leaves the files as they are: a schema that
+                // would not come back is worse undone by halves.
+                return 'the migrations could not be reverted (' . $e->getMessage() . '), so nothing was restored.';
+            }
+
+            return null;
+        };
+
+        $result = $manager->restoreBackup($name, $revert);
 
         if (! $result['success']) {
             return redirect()->to('/admin/updates')->with('error', 'Rollback failed: ' . ($result['error'] ?? ''));
@@ -397,6 +440,10 @@ class UpdateController extends Controller
             $result['restored'],
             $result['removed']
         );
+
+        if ($reverted > 0) {
+            $message .= sprintf(' %d migration batch(es) reverted.', $reverted);
+        }
 
         if ($migrationError !== null) {
             $message .= ' — Warning: migrations: ' . $migrationError;

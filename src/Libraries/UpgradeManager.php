@@ -750,7 +750,11 @@ class UpgradeManager
 
         // Schema changes land here, between the two halves — see $beforeSwap.
         if ($beforeSwap !== null) {
-            $beforeSwap();
+            $reported = $beforeSwap();
+
+            if (is_array($reported) && $reported !== []) {
+                $this->amendBackupManifest($backupDir, $reported);
+            }
         }
 
         // Swapped roots go in last. Everything above is already on disk, so a
@@ -1037,6 +1041,8 @@ class UpgradeManager
                 // the update shipped migrations turns a vague caveat into a
                 // specific warning at the point of decision.
                 'migrations'   => $this->countMigrations($meta),
+                // A batch is only revertable when the update recorded one.
+                'batch'        => $this->backupMigrations($entry),
                 // Backups taken before this metadata existed can still be
                 // restored, they just can't undo added files.
                 'restorable'   => true,
@@ -1056,7 +1062,7 @@ class UpgradeManager
      *
      * @return array{success: bool, restored?: int, removed?: int, error?: string}
      */
-    public function restoreBackup(string $name): array
+    public function restoreBackup(string $name, ?callable $beforeRestore = null): array
     {
         if (! $this->isValidBackupName($name)) {
             return ['success' => false, 'error' => 'Invalid backup name.'];
@@ -1065,6 +1071,17 @@ class UpgradeManager
         $backupDir = WRITEPATH . 'backups/' . $name . '/';
         if (! is_dir($backupDir)) {
             return ['success' => false, 'error' => "Backup not found: {$name}"];
+        }
+
+        // Runs while the update's own migration files are still on disk —
+        // restoring deletes them, and a down() cannot run from a file that is
+        // no longer there.
+        if ($beforeRestore !== null) {
+            $reported = $beforeRestore($this->backupMigrations($name));
+
+            if (is_string($reported) && $reported !== '') {
+                return ['success' => false, 'error' => $reported];
+            }
         }
 
         $base     = ROOTPATH;
@@ -1151,6 +1168,44 @@ class UpgradeManager
         }
 
         return ['success' => true, 'restored' => $restored, 'removed' => $removed];
+    }
+
+    /**
+     * The migration batch an update created, as recorded when it was applied.
+     *
+     * @return array{batch_before: int, batch_after: int}|null null when the
+     *         update ran no migrations, or predates this being recorded
+     */
+    public function backupMigrations(string $name): ?array
+    {
+        if (! $this->isValidBackupName($name)) {
+            return null;
+        }
+
+        $meta = $this->readBackupManifest(WRITEPATH . 'backups/' . $name . '/');
+        $ran  = $meta['migrations'] ?? null;
+
+        if (! is_array($ran) || ! isset($ran['batch_before'], $ran['batch_after'])) {
+            return null;
+        }
+
+        $before = (int) $ran['batch_before'];
+        $after  = (int) $ran['batch_after'];
+
+        return $after > $before ? ['batch_before' => $before, 'batch_after' => $after] : null;
+    }
+
+    /**
+     * @param array<string, mixed> $extra
+     */
+    private function amendBackupManifest(string $backupDir, array $extra): void
+    {
+        $meta = $this->readBackupManifest($backupDir);
+
+        file_put_contents(
+            $backupDir . self::BACKUP_MANIFEST,
+            json_encode($meta + $extra, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n",
+        );
     }
 
     /**
