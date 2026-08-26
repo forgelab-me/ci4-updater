@@ -248,6 +248,7 @@ class UpdateController extends Controller
             // The scope this release declared. apply() re-validates it, but it
             // has to travel: it is a property of the release, not of the app.
             'roots'      => $result['roots'] ?? null,
+            'files'      => $result['files'] ?? null,
         ]);
 
         return redirect()->to('/admin/updates');
@@ -294,6 +295,7 @@ class UpdateController extends Controller
             $state['version'],
             $state['roots'] ?? null,
             $migrate,
+            $state['files'] ?? null,
         );
 
         if (! $result['success']) {

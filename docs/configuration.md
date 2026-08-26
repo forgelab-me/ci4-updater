@@ -15,6 +15,7 @@ it. It extends the package's base config, so you only override what you need.
 | `USER_AGENT` | Sent when contacting the update server, e.g. `'MyGameUpdater/1.0'`. |
 | `SCAN_DIRS` | Directories making up a release you *build* — hashed, zipped, and recorded in the manifest as that release's scope. `['app', 'public']` is correct for a standard CI4 layout. |
 | `$allowedRoots` | Directories a release you *receive* may cover. Empty means `SCAN_DIRS`. See [Release scope](#release-scope). |
+| `$allowedFiles` | Root-level files a release you *receive* may write, by exact name. Empty — the default — means none. See [Files in the application root](#files-in-the-application-root). |
 | `$swapRoots` | Directories replaced as a whole rather than file by file (default `['vendor']`). Inert until a release covers one. See [Shipping vendor/](#shipping-vendor). |
 | `$layout` | Layout the panel extends (default `layout/main`). |
 | `$appName` | Name shown beside the version in the panel. |
@@ -65,6 +66,42 @@ server.
 
 Manifests generated before 2.6 carry no `roots` and are read with the local
 `SCAN_DIRS`, exactly as they were.
+
+## Files in the application root
+
+A release covers directories. It can also carry named files sitting directly in
+the application root, which is how `composer.json` and `composer.lock` stay in
+step with a release that ships `vendor/` — without them, the two describe
+different dependency sets and the next `composer install` on the server undoes
+the update.
+
+Building one:
+
+```bash
+php spark update:manifest --roots app,public,vendor --files composer.json,composer.lock
+```
+
+Receiving one — off until you say otherwise:
+
+```php
+// app/Config/Updater.php
+public array $allowedFiles = ['composer.json', 'composer.lock'];
+```
+
+Deploy that config **before** the release that declares the files: an
+installation refuses a root file it has not allowed, which is the point, but it
+means the permission has to arrive first.
+
+Three rules hold whatever you list:
+
+- `.env`, `.htaccess`, `.gitignore` and `.gitattributes` are always refused.
+  `.env` holds the credentials the application runs on and belongs to whoever
+  deploys it.
+- A name is a name: no path, no traversal, at most 64 characters.
+- A root file is **never deleted**. A release that stops shipping
+  `composer.json` has stopped managing it, which is not the same as asking for
+  it to go — so it is left where it is, and a diff proposing to delete one is
+  refused.
 
 ## Shipping vendor/
 

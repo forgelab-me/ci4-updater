@@ -23,6 +23,16 @@ final class ReleaseScope
      */
     public const DENIED = ['writable'];
 
+    /**
+     * Refused as a root-level file whatever the installation's policy allows.
+     *
+     * .env holds the credentials this application runs on and is written by
+     * whoever deploys it, never by a release; .htaccess in the application root
+     * is what keeps the tree from being served; anything under .git belongs to
+     * a checkout, not to a release.
+     */
+    public const DENIED_FILES = ['.env', '.htaccess', '.gitignore', '.gitattributes'];
+
     private const MAX_LENGTH = 64;
 
     /**
@@ -43,6 +53,51 @@ final class ReleaseScope
         // '..' and dot-directories such as .git, while still allowing a name
         // to contain dots. Slashes and backslashes are excluded by the class.
         return preg_match('/\A[A-Za-z0-9_][A-Za-z0-9._-]*\z/', $root) === 1;
+    }
+
+    /**
+     * A root file is one plain file name directly under ROOTPATH — never a
+     * path, never a traversal, and never one of DENIED_FILES.
+     */
+    public static function isValidFileName(string $file): bool
+    {
+        if ($file === '' || strlen($file) > self::MAX_LENGTH) {
+            return false;
+        }
+
+        if (str_contains($file, '..') || in_array($file, self::DENIED_FILES, true)) {
+            return false;
+        }
+
+        // A leading dot is allowed — .env.example is a normal thing to ship —
+        // but the name still has to be a name.
+        return preg_match('/\A\.?[A-Za-z0-9_][A-Za-z0-9._-]*\z/', $file) === 1;
+    }
+
+    /**
+     * The entries that cannot be used as a root file, for reporting back.
+     *
+     * @param list<mixed> $files
+     *
+     * @return list<string>
+     */
+    public static function invalidFiles(array $files): array
+    {
+        $invalid = [];
+
+        foreach ($files as $file) {
+            if (is_string($file)) {
+                if (! self::isValidFileName($file)) {
+                    $invalid[] = $file;
+                }
+
+                continue;
+            }
+
+            $invalid[] = '(' . gettype($file) . ')';
+        }
+
+        return $invalid;
     }
 
     /**

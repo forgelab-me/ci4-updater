@@ -28,6 +28,9 @@ class UpgradeManager
     /** @var list<string> Roots replaced by a whole-directory swap. */
     private array $swapRoots;
 
+    /** @var list<string> Policy: the root-level files a release may write. */
+    private array $allowedFiles;
+
     private string $userAgent;
 
     /** @var list<string> PEM contents or paths; empty means signatures are not enforced. */
@@ -59,6 +62,7 @@ class UpgradeManager
         $this->keepBackups  = $keepBackups ?? self::configuredInt('keepBackups', 5);
         $this->allowedRoots     = ReleaseScope::normalize($allowedRoots ?? self::configuredAllowedRoots());
         $this->verifyAfterApply = self::configuredBool('verifyAfterApply', true);
+        $this->allowedFiles     = ReleaseScope::normalize(self::configuredList('allowedFiles'));
 
         // An empty policy means "whatever this app builds for itself".
         if ($this->allowedRoots === []) {
@@ -206,10 +210,16 @@ class UpgradeManager
     /**
      * @param list<string>|null $roots Defaults to the configured SCAN_DIRS
      */
-    public function buildCurrentManifest(?array $roots = null): array
+    public function buildCurrentManifest(?array $roots = null, ?array $rootFiles = null): array
     {
         $base  = ROOTPATH;
         $files = [];
+
+        foreach ($rootFiles ?? [] as $rootFile) {
+            if (is_string($rootFile) && is_file($base . $rootFile)) {
+                $files[$rootFile] = hash_file('sha256', $base . $rootFile);
+            }
+        }
 
         foreach ($roots ?? $this->scanDirs as $dir) {
             $path = $base . $dir;
@@ -384,7 +394,17 @@ class UpgradeManager
             }
 
             $roots = $this->releaseRoots($newManifest);
-            $diff  = $this->computeDiff($this->buildCurrentManifest($roots), $newManifest['files'], $roots);
+            $files = $this->releaseFiles($newManifest);
+
+            // buildCurrentManifest() scans directories only, so a root file is
+            // never on the "present locally, absent from the manifest" side of
+            // the diff — dropping one from a release cannot delete it.
+            $diff = $this->computeDiff(
+                $this->buildCurrentManifest($roots, $files),
+                $newManifest['files'],
+                $roots,
+                $files,
+            );
 
             // A manifest listing paths outside the release's own roots is not
             // something to work around — refuse the release entirely rather
@@ -408,6 +428,7 @@ class UpgradeManager
                 'diff'       => $diff,
                 'manifest'   => $newManifest['files'],
                 'roots'      => $roots,
+                'files'      => $files,
                 'requires'   => is_array($newManifest['requires'] ?? null) ? $newManifest['requires'] : [],
                 'signed'     => $this->publicKeys !== [] && $signature !== null,
             ];
@@ -441,6 +462,20 @@ class UpgradeManager
         $declared = ReleaseScope::normalize($declared);
 
         return $declared === [] ? $this->scanDirs : $declared;
+    }
+
+    /**
+     * The root-level files a release covers, as declared in its manifest.
+     *
+     * @param array<string, mixed> $manifest
+     *
+     * @return list<string>
+     */
+    public function releaseFiles(array $manifest): array
+    {
+        $declared = $manifest['root_files'] ?? null;
+
+        return is_array($declared) ? ReleaseScope::normalize($declared) : [];
     }
 
     /**
@@ -478,6 +513,12 @@ class UpgradeManager
                 . ' if the release is meant to manage that directory, or decline the update.';
         }
 
+        $fileError = $this->checkFiles($manifest);
+
+        if ($fileError !== null) {
+            return $fileError;
+        }
+
         // A declared root with nothing under it means a truncated or misbuilt
         // manifest. Left alone it would read as "every file here was deleted".
         $files = is_array($manifest['files'] ?? null) ? $manifest['files'] : [];
@@ -501,6 +542,51 @@ class UpgradeManager
     }
 
     /**
+     * Validates the root-level files a release declares.
+     *
+     * Writing beside app/ and public/ rather than inside them reaches
+     * composer.json, spark, and whatever else the application root holds — so
+     * it happens only for names an installation has explicitly allowed.
+     *
+     * @param array<string, mixed> $manifest
+     *
+     * @return string|null An error message, or null when the declaration is usable
+     */
+    public function checkFiles(array $manifest): ?string
+    {
+        $files = $this->releaseFiles($manifest);
+
+        if ($files === []) {
+            return null;
+        }
+
+        $invalid = ReleaseScope::invalidFiles($files);
+
+        if ($invalid !== []) {
+            return 'The release manifest declares unusable root files: ' . implode(', ', $invalid);
+        }
+
+        $refused = array_values(array_diff($files, $this->allowedFiles));
+
+        if ($refused !== []) {
+            return 'This release writes ' . implode(', ', $refused)
+                . ' in the application root, which this installation does not accept.'
+                . ' Add the name to Config\Updater::$allowedFiles if the release is meant to manage it,'
+                . ' or decline the update.';
+        }
+
+        $listed = is_array($manifest['files'] ?? null) ? $manifest['files'] : [];
+
+        foreach ($files as $file) {
+            if (! isset($listed[$file])) {
+                return "The release manifest declares the root file \"{$file}\" but does not list it.";
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Whether a manifest key is a safe relative path to write under ROOTPATH.
      *
      * Manifest keys come from the update server, and apply() turns them into
@@ -510,7 +596,7 @@ class UpgradeManager
      *
      * @param list<string>|null $roots Defaults to the configured SCAN_DIRS
      */
-    public function isSafeManifestPath(string $path, ?array $roots = null): bool
+    public function isSafeManifestPath(string $path, ?array $roots = null, ?array $files = null): bool
     {
         if ($path === '' || str_contains($path, "\0") || str_contains($path, '\\')) {
             return false;
@@ -528,7 +614,15 @@ class UpgradeManager
             }
         }
 
-        return in_array($segments[0], $roots ?? $this->scanDirs, true) && count($segments) > 1;
+        if (count($segments) === 1) {
+            // A root-level file, and only one this release declared, this
+            // installation allows, and ReleaseScope accepts as a name.
+            return in_array($path, $files ?? [], true)
+                && in_array($path, $this->allowedFiles, true)
+                && ReleaseScope::isValidFileName($path);
+        }
+
+        return in_array($segments[0], $roots ?? $this->scanDirs, true);
     }
 
     /**
@@ -539,12 +633,12 @@ class UpgradeManager
      *
      * @param list<string>|null $roots Defaults to the configured SCAN_DIRS
      */
-    public function computeDiff(array $current, array $new, ?array $roots = null): array
+    public function computeDiff(array $current, array $new, ?array $roots = null, ?array $files = null): array
     {
         $diff = ['added' => [], 'modified' => [], 'deleted' => [], 'unchanged' => 0, 'rejected' => []];
 
         foreach ($new as $file => $newHash) {
-            if (! $this->isSafeManifestPath((string) $file, $roots)) {
+            if (! $this->isSafeManifestPath((string) $file, $roots, $files)) {
                 $diff['rejected'][] = (string) $file;
                 continue;
             }
@@ -558,7 +652,9 @@ class UpgradeManager
             }
         }
         foreach ($current as $file => $hash) {
-            if (! isset($new[$file])) {
+            // A root file dropped from a release is one the release no longer
+            // manages, never one to delete.
+            if (! isset($new[$file]) && str_contains((string) $file, '/')) {
                 $diff['deleted'][] = $file;
             }
         }
@@ -592,8 +688,10 @@ class UpgradeManager
         ?string $version = null,
         ?array $roots = null,
         ?callable $beforeSwap = null,
+        ?array $files = null,
     ): array {
         $roots = $roots === null ? $this->scanDirs : ReleaseScope::normalize($roots);
+        $files = ReleaseScope::normalize($files ?? []);
 
         // prepare() validated all of this, but apply() is public and its
         // arguments travel through the session between requests — so the scope
@@ -615,12 +713,30 @@ class UpgradeManager
             ];
         }
 
+        $refusedFiles = array_values(array_diff($files, $this->allowedFiles));
+        if ($refusedFiles !== []) {
+            return [
+                'success' => false,
+                'error'   => 'Refusing to apply a release writing ' . implode(', ', $refusedFiles)
+                    . ' in the application root, which this installation does not accept.',
+            ];
+        }
+
         foreach (['added', 'modified', 'deleted'] as $group) {
             foreach ($diff[$group] ?? [] as $file) {
-                if (! $this->isSafeManifestPath((string) $file, $roots)) {
+                if (! $this->isSafeManifestPath((string) $file, $roots, $files)) {
                     return [
                         'success' => false,
                         'error'   => "Refusing to apply an unsafe path: {$file}",
+                    ];
+                }
+
+                // A release that stops shipping composer.json means it no
+                // longer manages it, never that it should be deleted.
+                if ($group === 'deleted' && ! str_contains((string) $file, '/')) {
+                    return [
+                        'success' => false,
+                        'error'   => "Refusing to delete a root file: {$file}",
                     ];
                 }
             }
@@ -652,7 +768,7 @@ class UpgradeManager
         MaintenanceWindow::open('Applying ' . ($version ?? 'an update'));
 
         try {
-            return $this->writeRelease($extractDir, $diff, $inPlace, $swapping, $newManifest, $version, $roots, $beforeSwap);
+            return $this->writeRelease($extractDir, $diff, $inPlace, $swapping, $newManifest, $version, $roots, $beforeSwap, $files);
         } finally {
             MaintenanceWindow::close();
         }
@@ -677,6 +793,7 @@ class UpgradeManager
         ?string $version,
         array $roots,
         ?callable $beforeSwap,
+        array $files = [],
     ): array {
         $base       = ROOTPATH;
         $backupName = 'backup-' . date('Y-m-d-His');
@@ -695,6 +812,7 @@ class UpgradeManager
             'from_version' => Updater::VERSION,
             'to_version'   => $version,
             'roots'        => $roots,
+            'root_files'   => $files,
             // Swapped roots are not in this backup directory: their previous
             // tree is parked under ROOTPATH, and a restore renames it back.
             'swapped'      => $swapping,
@@ -1142,6 +1260,7 @@ class UpgradeManager
         // roots and fall back to it.
         $meta  = $this->readBackupManifest($backupDir);
         $roots = $this->releaseRoots($meta);
+        $files = $this->releaseFiles($meta);
 
         $invalid = ReleaseScope::invalidRoots($roots);
         if ($invalid !== []) {
@@ -1161,7 +1280,7 @@ class UpgradeManager
 
             // The backup was written from manifest paths, so the same rule
             // applies on the way back.
-            if (! $this->isSafeManifestPath($rel, $roots)) {
+            if (! $this->isSafeManifestPath($rel, $roots, $files)) {
                 return ['success' => false, 'error' => "Refusing to restore an unsafe path: {$rel}"];
             }
 
@@ -1197,7 +1316,7 @@ class UpgradeManager
                 continue;
             }
 
-            if (! is_string($file) || ! $this->isSafeManifestPath($file, $roots)) {
+            if (! is_string($file) || ! $this->isSafeManifestPath($file, $roots, $files)) {
                 return [
                     'success' => false,
                     'error'   => 'This backup records a file outside its own scope, so restoring it '

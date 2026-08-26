@@ -132,6 +132,26 @@ class Updater extends BaseConfig
     public int $keepBackups = 5;
 
     /**
+     * Root-level files a release may write, by exact name.
+     *
+     * Empty — the default — means a release may write inside the directories
+     * it covers and nowhere else. Naming a file here lets a release keep it in
+     * step: `composer.json` and `composer.lock` are the reason this exists,
+     * since a release that ships vendor/ without them leaves the two
+     * describing different dependency sets.
+     *
+     * A release still has to declare the file, and .env, .htaccess and the
+     * .git* files are refused whatever is listed here.
+     *
+     * Root files are only ever written, never deleted: a release that stops
+     * shipping one has stopped managing it, which is not the same as asking
+     * for it to go.
+     *
+     * @var list<string>
+     */
+    public array $allowedFiles = [];
+
+    /**
      * Whether what an update wrote is read back and compared to the manifest
      * before it reports success.
      *

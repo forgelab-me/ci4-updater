@@ -30,6 +30,29 @@ php spark update:manifest --sign /secure/path/release-signing.key
 That adds `manifest.json.sig` to the archive. See
 [Signing releases](signing.md).
 
+### Files in the application root
+
+`--roots` covers directories. A release can also carry named files from the
+application root — which is how `composer.json` and `composer.lock` travel with
+a release that ships `vendor/`, instead of leaving the two describing different
+dependency sets:
+
+```bash
+php spark update:manifest --roots app,public,vendor --files composer.json,composer.lock
+```
+
+Each receiving installation has to allow them by name:
+
+```php
+// app/Config/Updater.php
+public array $allowedFiles = ['composer.json', 'composer.lock'];
+```
+
+That config change has to be deployed **before** the release declaring the
+files — an installation refuses what it has not allowed. `.env`, `.htaccess`
+and the `.git*` files are refused whatever the list says, and a root file is
+never deleted by an update.
+
 ### What the release needs to run
 
 The manifest records the PHP version and extensions the release requires, read

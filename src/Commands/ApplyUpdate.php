@@ -128,7 +128,9 @@ class ApplyUpdate extends BaseCommand
         $diff = $prepared['diff'];
 
         CLI::newLine();
-        CLI::write('Covers  : ' . implode(', ', $prepared['roots'] ?? []), 'white');
+        $covers = array_merge($prepared['roots'] ?? [], $prepared['files'] ?? []);
+
+        CLI::write('Covers  : ' . implode(', ', $covers), 'white');
         CLI::write('Signed  : ' . ($prepared['signed'] ? 'yes' : 'no'), $prepared['signed'] ? 'green' : 'yellow');
 
         if (($prepared['requires'] ?? []) !== []) {
@@ -184,6 +186,7 @@ class ApplyUpdate extends BaseCommand
             $prepared['version'],
             $prepared['roots'] ?? null,
             $migrate,
+            $prepared['files'] ?? null,
         );
 
         if (! $result['success']) {

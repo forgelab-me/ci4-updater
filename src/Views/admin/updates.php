@@ -96,7 +96,7 @@ having to port future changes yourself.
                   // else, so what is covered is part of reading the counts above. ?>
             <p class="text-secondary small mb-3">
                 <i class="bi bi-folder me-1"></i>
-                Covers <?= esc(implode(', ', $upgradePending['roots'])) ?> —
+                Covers <?= esc(implode(', ', array_merge($upgradePending['roots'], $upgradePending['files'] ?? []))) ?> —
                 anything outside is left untouched.
             </p>
         <?php endif; ?>

@@ -4,6 +4,45 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.17.0] - 2026-08-18
+
+### Added
+
+- **A release can carry files from the application root**, not just the
+  directories it covers. `composer.json` and `composer.lock` are the reason:
+  a release that ships `vendor/` without them leaves the two describing
+  different dependency sets, and the next `composer install` on the server
+  quietly undoes the update.
+
+  ```bash
+  php spark update:manifest --roots app,public,vendor --files composer.json,composer.lock
+  ```
+
+  The manifest gains `root_files`, and those files are hashed, shipped, diffed,
+  backed up, verified and restored like any other.
+
+- **Off unless an installation opts in.** `Config\Updater::$allowedFiles` is
+  empty by default, so a release declaring a root file is refused by name until
+  someone adds it. Writing beside `app/` reaches `composer.json`, `spark` and
+  whatever else the root holds — that is a wider perimeter than the rest of the
+  system, and it stays shut until it is asked for.
+
+  `.env`, `.htaccess` and the `.git*` files are refused whatever the list says.
+  `.env` holds the credentials the application runs on and belongs to whoever
+  deploys it, never to a release.
+
+- **Root files are only ever written, never deleted.** A release that stops
+  shipping `composer.json` has stopped managing it, which is not the same as
+  asking for it to go — so it is left alone, and a diff asking to delete one is
+  refused outright.
+
+### Upgrading
+
+Nothing to do; without `$allowedFiles` nothing changes. To start shipping them,
+add the names to your app's config *before* publishing the release that
+declares them — an installation refuses what it does not allow, which is the
+point, but it means the config change has to land first.
+
 ## [2.16.0] - 2026-08-18
 
 ### Added

@@ -24,12 +24,13 @@ class GenerateManifest extends BaseCommand
     protected $group       = 'Update';
     protected $name        = 'update:manifest';
     protected $description = 'Generates manifest.json (SHA-256 hashes) and a release ZIP for the self-update system.';
-    protected $usage       = 'update:manifest [--roots <a,b>] [--sign <private-key>] [--passphrase <passphrase>] [--requires-php <constraint>] [--requires-ext <a,b>] [--no-requires]';
+    protected $usage       = 'update:manifest [--roots <a,b>] [--files <a,b>] [--sign <private-key>] [--passphrase <passphrase>] [--requires-php <constraint>] [--requires-ext <a,b>] [--no-requires]';
 
     protected $options = [
         '--roots'        => 'Comma-separated top-level directories this release covers. Defaults to Config\Updater::SCAN_DIRS.',
         '--sign'         => 'Sign the manifest with this private key (PEM path). Required by apps that set Config\Updater::$publicKeys.',
         '--passphrase'   => 'Passphrase protecting the private key, if any.',
+        '--files'        => 'Comma-separated root-level files this release also covers, e.g. composer.json,composer.lock.',
         '--requires-php' => 'PHP constraint this release needs, e.g. "^8.2". Defaults to composer.json.',
         '--requires-ext' => 'Comma-separated PHP extensions this release needs. Defaults to composer.json.',
         '--no-requires'  => 'Declare no requirements at all.',
@@ -87,6 +88,16 @@ class GenerateManifest extends BaseCommand
 
         $scanDirs = $covered;
 
+        $rootFiles = $this->resolveRootFiles($base);
+
+        if ($rootFiles === null) {
+            return;
+        }
+
+        foreach ($rootFiles as $rootFile) {
+            $files[$rootFile] = hash_file('sha256', $base . $rootFile);
+        }
+
         ksort($files);
 
         // The scope travels with the release. Without it the installing app
@@ -100,6 +111,12 @@ class GenerateManifest extends BaseCommand
             'roots'        => $scanDirs,
             'files'        => $files,
         ];
+
+        if ($rootFiles !== []) {
+            $manifest = array_slice($manifest, 0, 4, true)
+                + ['root_files' => $rootFiles]
+                + array_slice($manifest, 4, null, true);
+        }
 
         $requires = $this->resolveRequirements($base);
 
@@ -135,11 +152,11 @@ class GenerateManifest extends BaseCommand
         }
 
         $zipPath = $base . 'release_' . preg_replace('/[^A-Za-z0-9_-]+/', '_', $manifest['version']) . '_' . date('Ymd_His') . '.zip';
-        $this->createReleaseZip($zipPath, $manifestPath, $scanDirs, $signaturePath);
+        $this->createReleaseZip($zipPath, $manifestPath, $scanDirs, $signaturePath, $rootFiles);
 
         CLI::write('manifest.json generated successfully.', 'green');
         CLI::write('Version : ' . $manifest['version'], 'white');
-        CLI::write('Covers  : ' . implode(', ', $scanDirs), 'white');
+        CLI::write('Covers  : ' . implode(', ', array_merge($scanDirs, $rootFiles)), 'white');
 
         if (isset($manifest['requires'])) {
             CLI::write('Requires: ' . ReleaseRequirements::describe($manifest['requires']), 'white');
@@ -160,6 +177,40 @@ class GenerateManifest extends BaseCommand
         CLI::write('  1. Create a GitHub release for v' . $manifest['version'], 'white');
         CLI::write('  2. Attach ' . basename($zipPath) . ' as a release asset (it embeds manifest.json'
             . ($signaturePath !== null ? ' and its signature)' : ')'), 'white');
+    }
+
+    /**
+     * The root-level files this release covers, or null when the request
+     * cannot be honoured.
+     *
+     * @return list<string>|null
+     */
+    private function resolveRootFiles(string $base): ?array
+    {
+        $option = (string) (CLI::getOption('files') ?: '');
+
+        if ($option === '') {
+            return [];
+        }
+
+        $files   = ReleaseScope::normalize(array_map('trim', explode(',', $option)));
+        $invalid = ReleaseScope::invalidFiles($files);
+
+        if ($invalid !== []) {
+            CLI::error('Not usable as root-level files: ' . implode(', ', $invalid));
+
+            return null;
+        }
+
+        foreach ($files as $file) {
+            if (! is_file($base . $file)) {
+                CLI::error("No such file in the application root: {$file}");
+
+                return null;
+            }
+        }
+
+        return $files;
     }
 
     /**
@@ -274,7 +325,7 @@ class GenerateManifest extends BaseCommand
         return $roots;
     }
 
-    private function createReleaseZip(string $zipPath, string $manifestPath, array $scanDirs, ?string $signaturePath = null): void
+    private function createReleaseZip(string $zipPath, string $manifestPath, array $scanDirs, ?string $signaturePath = null, array $rootFiles = []): void
     {
         $zip = new \ZipArchive();
         if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
@@ -283,6 +334,10 @@ class GenerateManifest extends BaseCommand
         }
 
         $zip->addFile($manifestPath, 'manifest.json');
+
+        foreach ($rootFiles as $rootFile) {
+            $zip->addFile(ROOTPATH . $rootFile, $rootFile);
+        }
 
         // Travelling inside the archive is enough: the signature's value comes
         // from the key that made it, not from where it is stored.
