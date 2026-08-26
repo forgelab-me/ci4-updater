@@ -73,6 +73,31 @@ Then, at minimum:
 
 Full details: [Configuration](docs/configuration.md).
 
+## From the command line
+
+The panel is not the only way in — useful over SSH, from a deploy script, and
+on the day the panel is what broke.
+
+```bash
+php spark updater:check          # what is the server offering?
+php spark updater:apply          # download, show the diff, ask, apply
+php spark updater:apply --dry-run
+php spark updater:apply --yes    # unattended
+```
+
+`updater:check` reports through its exit code as well: `0` up to date, `2` an
+update is available, `1` the check could not be made — so a cron job can act on
+it without parsing anything.
+
+```bash
+php spark updater:check --quiet || php spark updater:apply --yes
+```
+
+`updater:apply` refuses to start when signatures are required and the public
+key cannot be read, backs up every file it overwrites, runs pending migrations,
+and prunes old backups — the same steps, in the same order, as the panel.
+Restoring a backup stays a panel action.
+
 ## Security
 
 These routes can overwrite any file under `app/`/`public/` and run DB
@@ -99,7 +124,8 @@ refused from then on. See [Signing releases](docs/signing.md) and
    a ready-made server for this, or use GitHub Releases.
 3. In the app, `/admin/updates` checks the feed, downloads and diffs the
    release, and applies it on confirmation — backing up every changed file to
-   `writable/backups/` and running pending migrations.
+   `writable/backups/` and running pending migrations. `php spark
+   updater:apply` does the same thing from a shell.
 4. If it goes wrong, the same panel restores that backup: files go back as
    they were and files the update added are removed. Older backups are pruned
    automatically (`$keepBackups`, five by default). A restore reverts code and

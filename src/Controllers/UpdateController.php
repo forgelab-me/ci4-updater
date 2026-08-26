@@ -7,6 +7,7 @@ namespace Forgelabme\Ci4Updater\Controllers;
 use CodeIgniter\Controller;
 use Config\Updater;
 use Forgelabme\Ci4Updater\Libraries\DownloadPolicy;
+use Forgelabme\Ci4Updater\Libraries\ReleaseFeed;
 use Forgelabme\Ci4Updater\Libraries\SettingsInterface;
 use Forgelabme\Ci4Updater\Libraries\UpdaterSettings;
 use Forgelabme\Ci4Updater\Libraries\UpgradeManager;
@@ -193,52 +194,19 @@ class UpdateController extends Controller
         // to the latest release would step over — it is the only side that can
         // see the releases in between. A feed that ignores the parameter (a
         // static latest.json, say) simply answers without those fields.
-        $latestUrl = $serverUrl . '/latest.json?from=' . rawurlencode(Updater::VERSION);
+        $result = (new ReleaseFeed())->latest($serverUrl, $token, Updater::VERSION);
 
-        $json = (new UpgradeManager())->fetchFromServer($latestUrl, $token, $serverUrl);
-
-        if ($json === false) {
-            return $this->response->setJSON(['error' => "Could not reach the update server ({$latestUrl})."]);
-        }
-
-        $data = json_decode($json, true);
-        if (! is_array($data) || empty($data['version'])) {
-            return $this->response->setJSON(['error' => 'Invalid response from the update server.']);
-        }
-
-        return $this->response->setJSON([
-            'version'      => $data['version'],
-            'changelog'    => $data['changelog'] ?? '',
-            'date'         => $data['date'] ?? '',
-            'zip_url'      => $data['zip_url'] ?? '',
-            'manifest_url' => $data['manifest_url'] ?? '',
-            // Absent from feeds that don't compute them; the panel then simply
-            // has nothing to warn about.
-            'missed_roots'     => self::stringList($data['missed_roots'] ?? null),
-            'skipped_versions' => self::stringList($data['skipped_versions'] ?? null),
-            // The server may hand back an intermediate release rather than the
-            // newest one, when that release must not be jumped over.
-            'required_step'  => ! empty($data['required_step']),
-            'latest_version' => is_string($data['latest_version'] ?? null) ? $data['latest_version'] : '',
-        ]);
+        return $this->response->setJSON(
+            $result['ok'] ? $result['release'] : ['error' => $result['error']]
+        );
     }
 
     /**
-     * Keeps only plain strings: these come from the update server and end up
-     * rendered in the panel.
-     *
      * @return list<string>
      */
     public static function stringList(mixed $value): array
     {
-        if (! is_array($value)) {
-            return [];
-        }
-
-        return array_values(array_filter(
-            $value,
-            static fn ($item) => is_string($item) && $item !== '' && strlen($item) <= 64,
-        ));
+        return ReleaseFeed::stringList($value);
     }
 
     // ── Upgrade pipeline ─────────────────────────────────────────────────────

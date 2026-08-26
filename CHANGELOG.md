@@ -4,6 +4,33 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.12.0] - 2026-08-18
+
+### Added
+
+- **`php spark updater:check` and `php spark updater:apply`** — the update
+  pipeline from a shell, for hosts you reach over SSH, for a deploy script, and
+  for the moment the panel itself is what broke.
+
+  ```
+  updater:check [--quiet]      0 up to date · 2 update available · 1 check failed
+  updater:apply [--yes] [--dry-run]
+  ```
+
+  `updater:apply` does what the panel does, in one process: it reads the feed,
+  refuses to go on if the signing key it needs is unreadable, downloads,
+  verifies the signature, prints the diff, asks, then backs up, writes, runs
+  pending migrations and prunes old backups. `--dry-run` stops after the diff
+  and removes what it downloaded; `--yes` skips the question.
+
+  The panel and the commands now read the feed through one class, so they
+  cannot disagree about what the server is offering.
+
+### Upgrading
+
+Nothing to do. The commands appear in `php spark list` as soon as the package
+is updated.
+
 ## [2.11.0] - 2026-08-18
 
 Four hardening changes, from a security review of the download path. Nothing
