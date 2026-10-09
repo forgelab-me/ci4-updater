@@ -93,7 +93,7 @@ class UpdateController extends Controller
             'upgradePending' => session()->get('upgrade_pending'),
             'keyProblem'     => (new UpgradeManager())->publicKeyProblem(),
             'serverProblem'  => $this->serverProblem(),
-            'backups'        => (new UpgradeManager())->listBackups(),
+            'backups'        => (new UpgradeManager())->listBackups(self::currentBatch()),
             'keepBackups'    => config('Updater')->keepBackups ?? 0,
         ]);
     }
@@ -393,6 +393,15 @@ class UpdateController extends Controller
     /**
      * The batch number the migration runner is on, or 0 when it cannot say.
      */
+    private static function currentBatch(): int
+    {
+        try {
+            return self::lastBatch(service('migrations'));
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
+
     private static function lastBatch(object $runner): int
     {
         try {
@@ -416,6 +425,12 @@ class UpdateController extends Controller
         $revert = static function (?array $batch) use ($regress, &$reverted): ?string {
             if (! $regress || $batch === null) {
                 return null;
+            }
+
+            // regress() reverts every batch above its target, whatever the form
+            // said: only the last batch can be reverted on its own.
+            if ($batch['batch_after'] !== self::currentBatch()) {
+                return 'migrations have run since that update, and reverting its batch would revert those too. Nothing was restored.';
             }
 
             try {

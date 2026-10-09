@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.17.1] - 2026-10-09
+
+### Fixed
+
+- **Reverting migrations on a rollback no longer reverts later ones.**
+  `regress()` reverts every batch above its target, so restoring an older update
+  with *revert migrations* ticked also reverted the migrations of every update
+  applied after it, data included. The box is now offered only while that
+  update's batch is still the last one, and the choice is checked again when the
+  restore runs, whatever the form says: if anything has migrated since, nothing
+  is restored.
+
+- **Only one update or restore runs at a time.** Two at once — the panel and the
+  CLI, a double click — shared a backup directory and fought over the
+  maintenance window. A lock in `writable/` now refuses the second one with a
+  message; it is released when the process ends, however it ends, so a crashed
+  update cannot leave the next one refused. Backup names have one-second
+  resolution, so a taken name now moves to the next free second instead of
+  colliding.
+
+### Upgrading
+
+Nothing to do.
+
 ## [2.17.0] - 2026-08-18
 
 ### Added

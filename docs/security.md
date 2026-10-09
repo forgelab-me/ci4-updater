@@ -135,7 +135,7 @@ against `backup-YYYY-MM-DD-HHMMSS` before use — the value arrives from a
 form post.
 
 Database migrations are reverted only if you ask: a restore shows a *revert
-migrations* box when the update recorded the batch it ran, and ticking it runs
+migrations* box when the update recorded the batch it ran and nothing has migrated since, and ticking it runs
 that batch's `down()` before the files go back. Left unticked — the default —
 rolling back restores code only, and the schema stays ahead of it.
 

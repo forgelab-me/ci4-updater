@@ -155,7 +155,8 @@ refused from then on. See [Signing releases](docs/signing.md) and
    they were and files the update added are removed. Older backups are pruned
    automatically (`$keepBackups`, five by default). A restore reverts code; the
    database only if you tick *revert migrations*, which runs the `down()` side
-   of the batch that update ran, before the files go back.
+   of the batch that update ran, before the files go back — offered only while
+   that batch is still the latest.
 
 A release covers `app/` and `public/` by default and says so in its manifest,
 so an app only ever touches what a release actually declares. Dependencies can

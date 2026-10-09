@@ -390,6 +390,10 @@ having to port future changes yourself.
                                 . 'methods as part of this restore — dropping whatever they added, data '
                                 . 'included. Leave it unticked and the schema stays ahead of the restored '
                                 . 'code.\n\n';
+                        } elseif ($b['batch_recorded'] !== null) {
+                            $warning .= 'That update ran migrations, but others have run since. Reverting '
+                                . 'its batch would revert those too, so the option is not offered: the '
+                                . 'schema stays ahead of the restored code.\n\n';
                         } elseif ($b['migrations'] > 0) {
                             $warning .= 'WARNING: that update shipped ' . (int) $b['migrations'] . ' migration file(s). '
                                 . 'Restoring does NOT roll the database back, so your schema will stay ahead '

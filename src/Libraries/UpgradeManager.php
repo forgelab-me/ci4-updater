@@ -763,6 +763,12 @@ class UpgradeManager
             ));
         }
 
+        $lock = ApplyLock::acquire();
+
+        if ($lock === null) {
+            return ['success' => false, 'error' => ApplyLock::busyMessage()];
+        }
+
         // Requests arriving mid-write would see a half-updated tree, so the
         // window is held open until the last root is in place.
         MaintenanceWindow::open('Applying ' . ($version ?? 'an update'));
@@ -771,6 +777,7 @@ class UpgradeManager
             return $this->writeRelease($extractDir, $diff, $inPlace, $swapping, $newManifest, $version, $roots, $beforeSwap, $files);
         } finally {
             MaintenanceWindow::close();
+            $lock->release();
         }
     }
 
@@ -796,7 +803,14 @@ class UpgradeManager
         array $files = [],
     ): array {
         $base       = ROOTPATH;
-        $backupName = 'backup-' . date('Y-m-d-His');
+        // Names have one-second resolution; a taken one moves to the next second.
+        $stamp = time();
+
+        while (is_dir(WRITEPATH . 'backups/backup-' . date('Y-m-d-His', $stamp))) {
+            $stamp++;
+        }
+
+        $backupName = 'backup-' . date('Y-m-d-His', $stamp);
         $backupDir  = WRITEPATH . 'backups/' . $backupName . '/';
         @mkdir($backupDir, 0755, true);
 
@@ -1158,7 +1172,7 @@ class UpgradeManager
      *
      * @return list<array{name: string, created_at: string|null, from_version: string|null, to_version: string|null, files: int, size: int, restorable: bool}>
      */
-    public function listBackups(): array
+    public function listBackups(?int $lastBatch = null): array
     {
         $dir = WRITEPATH . 'backups/';
         if (! is_dir($dir)) {
@@ -1207,8 +1221,10 @@ class UpgradeManager
                 // the update shipped migrations turns a vague caveat into a
                 // specific warning at the point of decision.
                 'migrations'   => $this->countMigrations($meta),
-                // A batch is only revertable when the update recorded one.
-                'batch'        => $this->backupMigrations($entry),
+                // The batch the update recorded, and whether it can be reverted
+                // now: only while nothing has migrated since.
+                'batch_recorded' => $this->backupMigrations($entry),
+                'batch'          => $this->revertableBatch($entry, $lastBatch),
                 // Backups taken before this metadata existed can still be
                 // restored, they just can't undo added files.
                 'restorable'   => true,
@@ -1239,6 +1255,24 @@ class UpgradeManager
             return ['success' => false, 'error' => "Backup not found: {$name}"];
         }
 
+        $lock = ApplyLock::acquire();
+
+        if ($lock === null) {
+            return ['success' => false, 'error' => ApplyLock::busyMessage()];
+        }
+
+        try {
+            return $this->restoreLocked($name, $backupDir, $beforeRestore);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * @return array{success: bool, restored?: int, removed?: int, error?: string}
+     */
+    private function restoreLocked(string $name, string $backupDir, ?callable $beforeRestore): array
+    {
         // Runs while the update's own migration files are still on disk —
         // restoring deletes them, and a down() cannot run from a file that is
         // no longer there.
@@ -1360,6 +1394,25 @@ class UpgradeManager
         $after  = (int) $ran['batch_after'];
 
         return $after > $before ? ['batch_before' => $before, 'batch_after' => $after] : null;
+    }
+
+    /**
+     * The batch a backup's update created, but only while it is still the last.
+     *
+     * regress() reverts every batch above its target, so an older update's batch
+     * cannot be reverted without also reverting whatever migrated after it.
+     *
+     * @return array{batch_before: int, batch_after: int}|null
+     */
+    public function revertableBatch(string $name, ?int $lastBatch): ?array
+    {
+        $batch = $this->backupMigrations($name);
+
+        if ($batch === null || $lastBatch === null || $batch['batch_after'] !== $lastBatch) {
+            return null;
+        }
+
+        return $batch;
     }
 
     /**

@@ -75,13 +75,46 @@ final class RollbackMigrationsTest extends TestCase
         self::assertSame(['app/keep.php'], $meta['diff']['modified']);
     }
 
-    public function testTheBackupListingSaysWhichOnesCanBeReverted(): void
+    public function testTheBatchIsOfferedWhileItIsStillTheLastOne(): void
     {
-        $withBatch = $this->applyWith(static fn (): array => ['migrations' => ['batch_before' => 2, 'batch_after' => 3]]);
+        $name = $this->applyWith(static fn (): array => ['migrations' => ['batch_before' => 2, 'batch_after' => 3]]);
 
-        $listed = array_column($this->manager->listBackups(), 'batch', 'name');
+        $listed = array_column($this->manager->listBackups(3), null, 'name')[$name];
 
-        self::assertSame(['batch_before' => 2, 'batch_after' => 3], $listed[$withBatch]);
+        self::assertSame(['batch_before' => 2, 'batch_after' => 3], $listed['batch']);
+    }
+
+    /**
+     * regress() reverts every batch above its target, so reverting an older
+     * update's batch would revert whatever migrated after it as well.
+     */
+    public function testTheBatchIsNotOfferedOnceAnotherHasRunSince(): void
+    {
+        $name = $this->applyWith(static fn (): array => ['migrations' => ['batch_before' => 2, 'batch_after' => 3]]);
+
+        $listed = array_column($this->manager->listBackups(4), null, 'name')[$name];
+
+        self::assertNull($listed['batch']);
+        self::assertSame(['batch_before' => 2, 'batch_after' => 3], $listed['batch_recorded'], 'still known, just not revertable');
+    }
+
+    /** Not knowing where the runner is means not offering it. */
+    public function testTheBatchIsNotOfferedWhenTheLastBatchIsUnknown(): void
+    {
+        $name = $this->applyWith(static fn (): array => ['migrations' => ['batch_before' => 2, 'batch_after' => 3]]);
+
+        self::assertNull(array_column($this->manager->listBackups(), null, 'name')[$name]['batch']);
+        self::assertNull(array_column($this->manager->listBackups(0), null, 'name')[$name]['batch']);
+    }
+
+    public function testRevertableBatchOnlyMatchesTheLastBatch(): void
+    {
+        $name = $this->applyWith(static fn (): array => ['migrations' => ['batch_before' => 6, 'batch_after' => 7]]);
+
+        self::assertSame(['batch_before' => 6, 'batch_after' => 7], $this->manager->revertableBatch($name, 7));
+        self::assertNull($this->manager->revertableBatch($name, 8));
+        self::assertNull($this->manager->revertableBatch($name, 6));
+        self::assertNull($this->manager->revertableBatch($name, null));
     }
 
     // -- Reverting -------------------------------------------------------------
