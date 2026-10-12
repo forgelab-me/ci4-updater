@@ -173,6 +173,13 @@ class Updater extends BaseConfig
     public int $maintenanceTtl = 600;
 
     /**
+     * How long the window stays open for an update that still has package
+     * migrations to run. A person has to finish it, so it outlasts
+     * $maintenanceTtl; once it expires the site is back on the old schema.
+     */
+    public int $finalizeTtl = 3600;
+
+    /**
      * View rendered with the 503 while the window is open. Null uses a plain
      * built-in page.
      *

@@ -131,11 +131,14 @@ advertises the new version and URLs. See [Update server](update-server.md).
    `writable/backups/backup-<timestamp>/` first. Then added and modified
    files are written (each SHA-256-verified against the manifest first),
    removed files deleted, pending migrations run via `migrate:latest`, and
-   the cache cleared.
+   the cache cleared. A shipped `vendor/` goes in last, in two renames.
 4. **Verify** — every file just written is hashed again and compared to the
    manifest, and every file just deleted is checked to be gone. Drift is
    reported with the backup to restore; it does not roll anything back.
-5. **Cleanup** — the maintenance window closes, temp files removed, `opcache_reset()` called so the new code
+5. **Finish** — only when the release's `vendor/` brings migrations of its own
+   (see below): the window stays open until `updater:finalize`, or the panel's
+   *Run migrations*, has run them in a process that has the new code.
+6. **Cleanup** — the maintenance window closes, temp files removed, `opcache_reset()` called so the new code
    takes effect without a server restart (when OPcache is enabled).
 
 Cancelling at step 2 removes the temp directory and touches nothing.
@@ -150,18 +153,25 @@ Cancelling at step 2 removes the temp directory and touches nothing.
 - A failed apply stops at the first error and reports the backup directory;
   it does not roll back on its own. Restore it from the **Backups** section
   of the update panel, which also removes the files the update added.
-- **A restore reverts code, never the database.** Migrations run by an
-  update stay applied, so a restored install can end up running older code
-  against a newer schema. The panel flags backups whose update shipped
-  migration files; revert those yourself when it matters. Writing migrations
-  whose `down()` actually works is what makes that possible, and
-  [how you shape them](#writing-migrations-you-can-roll-back-from) decides
-  whether a rollback is usable at all.
+- **A restore reverts code, and the database only if you ask.** Migrations run
+  by an update stay applied unless you tick *revert migrations* on the restore,
+  which the panel offers while that update's batch is still the latest. Without
+  it a restored install can end up running older code against a newer schema.
+  Writing migrations whose `down()` actually works is what makes reverting
+  possible, and [how you shape them](#writing-migrations-you-can-roll-back-from)
+  decides whether a rollback is usable at all.
 - Migrations run after the new files are in place and before any swapped
   directory goes in, so a release can safely ship a migration that depends on
-  new application code. A migration that needs a brand-new *dependency* is the
-  exception — `vendor/` is swapped after — so avoid that pairing in one
-  release.
+  new application code.
+- **Migrations that ship inside `vendor/`** — a package whose new version needs a
+  schema change — cannot run at that point: the new package is not loaded yet.
+  The update lists them when it is downloaded (a box, ticked by default), then
+  stops after the swap with the site in maintenance until they have run in a
+  fresh process. See
+  [Configuration](configuration.md#migrations-that-arrive-with-vendor). An
+  application migration that needs a brand-new *dependency* is still the
+  exception, since the application's migrations run before the swap: avoid that
+  pairing in one release.
 
 ## Writing migrations you can roll back from
 

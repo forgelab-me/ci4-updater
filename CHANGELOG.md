@@ -4,6 +4,44 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.18.0] - 2026-10-12
+
+### Added
+
+- **Migrations that arrive with `vendor/` no longer meet the old code.** A
+  release shipping a package whose new version needs a schema change — Shield
+  adding a column — used to run the new code on the old schema until somebody ran
+  `migrate --all`, with a 500 on every request in between. Migrations only ever
+  ran for the application's namespace, and before `vendor/` was swapped, so the
+  package's own were invisible at that point.
+
+  The update now reads them from the manifest when it is downloaded and lists
+  them next to a box, ticked by default: *Run the migrations this release brings
+  right after the update*. Ticked, it writes the release and **stops with the
+  maintenance window open** (`Config\Updater::$finalizeTtl`, an hour). The panel
+  shows a *Run migrations* button; `updater:apply` starts the new
+  `php spark updater:finalize` in a new process by itself. That process has the
+  new `vendor/` loaded, runs `migrate --all`, checks each migration the release
+  brought is now recorded, records the batch so a rollback reverts it with the
+  update's own, and closes the window.
+
+  If it fails, the update stays pending, the site stays in maintenance, and
+  another update is refused; restoring the backup or finishing the step ends it.
+  `updater:apply --skip-package-migrations` and the unticked box keep the old
+  behaviour. `updater:finalize --accept-missing` ends a step whose migrations ran
+  but are not all recorded.
+
+  The panel warns when the `maintenance` filter is not registered, since nothing
+  would then answer 503. Migrations kept in `tests/`, `_support/`, `examples/`,
+  `fixtures/` or `docs/` directories of a package are ignored.
+
+### Upgrading
+
+Register the `maintenance` filter if you have not (see the README) — it is what
+turns the wait into a 503 instead of an error. A published copy of the panel view
+(`updater:setup --views`) does not get the new box or the *Run migrations*
+button; the command line works regardless.
+
 ## [2.17.1] - 2026-10-09
 
 ### Fixed

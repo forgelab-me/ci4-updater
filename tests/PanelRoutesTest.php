@@ -48,7 +48,7 @@ final class PanelRoutesTest extends TestCase
         $recorder = new RecordingRouteCollection();
         (new Updater())->routes($recorder);
 
-        foreach (['updates/migrate', 'updates/clear-cache', 'updates/download', 'updates/apply', 'updates/cancel', 'updates/rollback', 'updates/backups/delete'] as $route) {
+        foreach (['updates/migrate', 'updates/clear-cache', 'updates/download', 'updates/apply', 'updates/finalize', 'updates/cancel', 'updates/rollback', 'updates/backups/delete'] as $route) {
             self::assertContains($route, $recorder->posts, "{$route} must be a POST — CSRF only protects those");
         }
 

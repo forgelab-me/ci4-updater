@@ -152,6 +152,46 @@ schema, and a 500 there takes the panel and the rollback with it.
 `$swapRoots` defaults to `['vendor']` and does nothing until a release
 actually covers it. Set it to `[]` to write everything file by file.
 
+### Migrations that arrive with vendor/
+
+The migrations above are the application's own. A release can also ship a
+package whose new version needs a new schema — Shield adding a column, say — and
+those files only exist once `vendor/` has been swapped, in a process that has
+not loaded them. Running the new code on the old schema until somebody notices
+means a 500 on every request.
+
+So the update reads them from the manifest and says so before you apply:
+
+> ☑ Run the migrations this release brings right after the update: `codeigniter4/shield (1)`
+
+Ticked (the default), the update writes everything, then **stops with the
+maintenance window open**. The panel shows a *Run migrations* button; the
+command line starts `php spark updater:finalize` in a new process by itself.
+That process loads the new `vendor/`, runs `migrate --all`, records the batch
+(so a rollback can revert it with the update's own), and closes the window.
+
+Until then every request answers 503 — which needs the `maintenance` filter
+registered, see the README; the panel warns when it is not.
+
+If the migrations fail, or nobody finishes, the update stays pending and the
+site stays in maintenance for `$finalizeTtl` seconds (an hour by default).
+Restoring the backup, or running `php spark updater:finalize` once the cause is
+fixed, both end it. Another update is refused meanwhile.
+
+Unticked, the update finishes as before and the site runs on the old schema
+until you run `php spark migrate --all` yourself.
+
+Two limits. The panel needs the new code to boot against the old schema to show
+its button: if the application's own authentication fails on it, use
+`php spark updater:finalize`. And the 503 covers an error or an
+abandoned step, not a machine that dies in the middle of the update.
+
+A migration directory named `tests`, `_support`, `examples`, `fixtures` or `docs`
+is not counted: a package keeps those for its own use and no application runs
+them. If the migrations ran but the table does not record one the release
+brought — no namespace this application loads owns it —
+`updater:finalize --accept-missing` ends the step anyway.
+
 ### Releases are not cumulative for a directory
 
 Worth understanding before shipping `vendor/` selectively. The panel offers
@@ -240,6 +280,7 @@ GET  admin/updates
 GET  admin/updates/check-remote
 POST admin/updates/download
 POST admin/updates/apply
+POST admin/updates/finalize
 POST admin/updates/cancel
 POST admin/updates/migrate
 POST admin/updates/clear-cache

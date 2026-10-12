@@ -7,13 +7,15 @@ namespace Forgelabme\Ci4Updater\Commands;
 use CodeIgniter\CLI\BaseCommand;
 use CodeIgniter\CLI\CLI;
 use Config\Updater;
+use Forgelabme\Ci4Updater\Libraries\Finalize;
+use Forgelabme\Ci4Updater\Libraries\PackageMigrations;
 use Forgelabme\Ci4Updater\Libraries\ReleaseFeed;
 use Forgelabme\Ci4Updater\Libraries\ReleaseRequirements;
 use Forgelabme\Ci4Updater\Libraries\ReleaseVerification;
 use Forgelabme\Ci4Updater\Libraries\UpgradeManager;
 
 /**
- * Usage: php spark updater:apply [--yes] [--dry-run]
+ * Usage: php spark updater:apply [--yes] [--dry-run] [--skip-package-migrations]
  *
  * Downloads what the update server is serving, shows what it changes, and
  * applies it — the same pipeline as the panel, from a shell.
@@ -27,11 +29,12 @@ class ApplyUpdate extends BaseCommand
     protected $group       = 'Update';
     protected $name        = 'updater:apply';
     protected $description = 'Downloads and applies the release the update server is serving.';
-    protected $usage       = 'updater:apply [--yes] [--dry-run]';
+    protected $usage       = 'updater:apply [--yes] [--dry-run] [--skip-package-migrations]';
 
     protected $options = [
         '--yes'     => 'Apply without asking for confirmation.',
         '--dry-run' => 'Download and report what would change, then stop.',
+        '--skip-package-migrations' => 'Do not run the migrations the release\'s vendor/ brings.',
     ];
 
     public function run(array $params): int
@@ -117,7 +120,7 @@ class ApplyUpdate extends BaseCommand
             return EXIT_SUCCESS;
         }
 
-        return $this->apply($manager, $prepared, $settings);
+        return $this->apply($manager, $prepared, $settings, CLI::getOption('skip-package-migrations') === null);
     }
 
     /**
@@ -135,6 +138,10 @@ class ApplyUpdate extends BaseCommand
 
         if (($prepared['requires'] ?? []) !== []) {
             CLI::write('Requires: ' . ReleaseRequirements::describe($prepared['requires']), 'white');
+        }
+
+        if (($prepared['packageMigrations'] ?? []) !== []) {
+            CLI::write('Migrate : ' . PackageMigrations::describe($prepared['packageMigrations']), 'white');
         }
 
         CLI::write(sprintf(
@@ -166,10 +173,36 @@ class ApplyUpdate extends BaseCommand
     }
 
     /**
+     * Package migrations need the new vendor/ loaded, which this process does
+     * not have: a fresh one runs them.
+     */
+    private function finalize(): int
+    {
+        CLI::newLine();
+        CLI::write('Running the package migrations in a new process…', 'yellow');
+
+        $code = Finalize::spawn();
+
+        if ($code === 0) {
+            return EXIT_SUCCESS;
+        }
+
+        CLI::newLine();
+        CLI::error($code === null
+            ? 'Could not start a new process.'
+            : 'The package migrations did not finish.');
+        CLI::write('The site stays in maintenance until `php spark updater:finalize` succeeds.', 'yellow');
+
+        return EXIT_ERROR;
+    }
+
+    /**
      * @param array<string, mixed> $prepared
      */
-    private function apply(UpgradeManager $manager, array $prepared, $settings): int
+    private function apply(UpgradeManager $manager, array $prepared, $settings, bool $runPackageMigrations): int
     {
+        $incoming = $prepared['packageMigrations'] ?? [];
+
         $migrationError = null;
         $migrate        = static function () use (&$migrationError): void {
             try {
@@ -187,6 +220,7 @@ class ApplyUpdate extends BaseCommand
             $prepared['roots'] ?? null,
             $migrate,
             $prepared['files'] ?? null,
+            $runPackageMigrations && $incoming !== [] ? $incoming : null,
         );
 
         if (! $result['success']) {
@@ -240,6 +274,16 @@ class ApplyUpdate extends BaseCommand
             CLI::error('Migrations reported: ' . $migrationError);
 
             return EXIT_ERROR;
+        }
+
+        if (! empty($result['finalize'])) {
+            return $this->finalize();
+        }
+
+        if ($incoming !== []) {
+            CLI::newLine();
+            CLI::write('Not run: the migrations this release brings (' . PackageMigrations::describe($incoming) . ').', 'yellow');
+            CLI::write('  Until `php spark migrate --all` does, the site runs on the old schema.', 'yellow');
         }
 
         return EXIT_SUCCESS;

@@ -16,7 +16,8 @@ be signed so a compromised update server can't publish code to your apps.
 | | |
 |---|---|
 | ![Dashboard](docs/screenshots/01-dashboard.jpg) *Current version, PHP/CI/DB info, migration status* | ![Update available](docs/screenshots/02-update-available.jpg) *A new release was found* |
-| ![Diff review](docs/screenshots/03-diff-review.jpg) *File-level diff, before anything is written* | ![Update applied](docs/screenshots/04-update-applied.jpg) *Applied, with the DB migration run automatically* |
+| ![Diff review](docs/screenshots/03-diff-review.jpg) *File-level diff, before anything is written — and the migrations the release's `vendor/` brings* | ![Awaiting migrations](docs/screenshots/04-awaiting-migrations.jpg) *Files written, site in maintenance until the package migrations have run* |
+| ![Update applied](docs/screenshots/05-update-applied.jpg) *Applied: migrations run, site back* | ![Backups](docs/screenshots/06-backups.jpg) *Every update leaves a backup, restorable in one click — optionally reverting its migrations* |
 
 ## Requirements
 
@@ -84,6 +85,7 @@ php spark updater:apply          # download, show the diff, ask, apply
 php spark updater:apply --dry-run
 php spark updater:apply --yes    # unattended
 php spark updater:maintenance    # is a window open? --on / --off to move it
+php spark updater:finalize       # run the migrations an update's vendor/ brought
 ```
 
 `updater:check` reports through its exit code as well: `0` up to date, `2` an
@@ -99,6 +101,11 @@ key cannot be read, backs up every file it overwrites, runs pending migrations,
 reads back what it wrote to check it against the manifest, and prunes old
 backups — the same steps, in the same order, as the panel.
 Restoring a backup stays a panel action.
+
+When the release's `vendor/` brings migrations of its own, `updater:apply` runs
+them in a new process once the files are in place (`--skip-package-migrations`
+to leave them), so the new code never runs on the old schema. See
+[Configuration](docs/configuration.md#migrations-that-arrive-with-vendor).
 
 ## While an update writes
 
@@ -121,6 +128,10 @@ public array $globals = [
 Exempt the panel, as above: it is what you need when something has to be rolled
 back. The window closes when the writing ends, and expires on its own after
 `Config\Updater::$maintenanceTtl` seconds if an update never gets that far.
+
+An update whose `vendor/` brings migrations keeps the window open after the
+writing, until they have run — that is the point of the filter then: without it
+nothing answers 503 and the new code meets the old schema.
 
 ## Security
 

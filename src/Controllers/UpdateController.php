@@ -7,6 +7,9 @@ namespace Forgelabme\Ci4Updater\Controllers;
 use CodeIgniter\Controller;
 use Config\Updater;
 use Forgelabme\Ci4Updater\Libraries\DownloadPolicy;
+use Forgelabme\Ci4Updater\Libraries\Finalize;
+use Forgelabme\Ci4Updater\Libraries\MaintenanceWindow;
+use Forgelabme\Ci4Updater\Libraries\PackageMigrations;
 use Forgelabme\Ci4Updater\Libraries\ReleaseFeed;
 use Forgelabme\Ci4Updater\Libraries\ReleaseVerification;
 use Forgelabme\Ci4Updater\Libraries\SettingsInterface;
@@ -95,6 +98,8 @@ class UpdateController extends Controller
             'serverProblem'  => $this->serverProblem(),
             'backups'        => (new UpgradeManager())->listBackups(self::currentBatch()),
             'keepBackups'    => config('Updater')->keepBackups ?? 0,
+            'finalize'       => Finalize::state(),
+            'maintenanceFilter' => MaintenanceWindow::filterRegistered(),
         ]);
     }
 
@@ -249,6 +254,7 @@ class UpdateController extends Controller
             // has to travel: it is a property of the release, not of the app.
             'roots'      => $result['roots'] ?? null,
             'files'      => $result['files'] ?? null,
+            'packageMigrations' => $result['packageMigrations'] ?? [],
         ]);
 
         return redirect()->to('/admin/updates');
@@ -287,6 +293,11 @@ class UpdateController extends Controller
                 : [];
         };
 
+        // Package migrations need the new vendor/ loaded, so they run in a
+        // later request; ticking the box keeps the site in maintenance until then.
+        $incoming = $state['packageMigrations'] ?? [];
+        $finalize = $incoming !== [] && (bool) $this->request->getPost('migrate_packages') ? $incoming : null;
+
         $manager = new UpgradeManager();
         $result  = $manager->apply(
             $state['extractDir'],
@@ -296,6 +307,7 @@ class UpdateController extends Controller
             $state['roots'] ?? null,
             $migrate,
             $state['files'] ?? null,
+            $finalize,
         );
 
         if (! $result['success']) {
@@ -337,6 +349,15 @@ class UpdateController extends Controller
             $msg .= ' — Warning: migrations: ' . $migrationError;
         }
 
+        if ($incoming !== [] && $finalize === null) {
+            $msg .= ' — Warning: the migrations this release brings (' . PackageMigrations::describe($incoming)
+                . ') were not run; until `php spark migrate --all` does, the site runs on the old schema.';
+        }
+
+        if (! empty($result['finalize'])) {
+            $msg .= ' — The site stays in maintenance until the package migrations have run: use Run migrations.';
+        }
+
         $drift = $result['verified']['drift'] ?? [];
 
         if ($drift !== []) {
@@ -347,6 +368,23 @@ class UpdateController extends Controller
         }
 
         return redirect()->to('/admin/updates')->with('success', $msg);
+    }
+
+    /**
+     * Runs the package migrations an applied update is waiting on. This is a
+     * new request, so the new vendor/ is what is loaded.
+     */
+    public function finalize(): \CodeIgniter\HTTP\RedirectResponse
+    {
+        $result = Finalize::run();
+
+        if (! $result['success']) {
+            return redirect()->to('/admin/updates')->with('error', $result['error'] ?? 'Could not finish the update.');
+        }
+
+        service('cache')->clean();
+
+        return redirect()->to('/admin/updates')->with('success', 'The package migrations have run and the site is back.');
     }
 
     public function upgradeCancel(): \CodeIgniter\HTTP\RedirectResponse

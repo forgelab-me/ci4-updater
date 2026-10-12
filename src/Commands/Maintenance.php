@@ -6,6 +6,7 @@ namespace Forgelabme\Ci4Updater\Commands;
 
 use CodeIgniter\CLI\BaseCommand;
 use CodeIgniter\CLI\CLI;
+use Forgelabme\Ci4Updater\Libraries\Finalize;
 use Forgelabme\Ci4Updater\Libraries\MaintenanceWindow;
 
 /**
@@ -74,6 +75,10 @@ class Maintenance extends BaseCommand
         CLI::write('  Since   : ' . ($state['started_at'] ?? '?'), 'white');
         CLI::write('  Reason  : ' . (($state['reason'] ?? '') !== '' ? $state['reason'] : '(none given)'), 'white');
         CLI::write('  Expires : in ' . MaintenanceWindow::retryAfter() . 's', 'white');
+
+        if (Finalize::isPending()) {
+            CLI::write('  Waiting : package migrations — run `php spark updater:finalize`', 'yellow');
+        }
 
         return self::EXIT_WINDOW_OPEN;
     }

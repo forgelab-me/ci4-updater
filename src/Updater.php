@@ -43,6 +43,7 @@ class Updater
             $routes->get('updates/check-remote', 'UpdateController::checkRemoteVersion');
             $routes->post('updates/download', 'UpdateController::upgradeDownload');
             $routes->post('updates/apply', 'UpdateController::upgradeApply');
+            $routes->post('updates/finalize', 'UpdateController::finalize');
             $routes->post('updates/cancel', 'UpdateController::upgradeCancel');
             $routes->post('updates/rollback', 'UpdateController::rollback');
             $routes->post('updates/backups/delete', 'UpdateController::deleteBackup');

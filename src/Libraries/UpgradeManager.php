@@ -430,6 +430,7 @@ class UpgradeManager
                 'roots'      => $roots,
                 'files'      => $files,
                 'requires'   => is_array($newManifest['requires'] ?? null) ? $newManifest['requires'] : [],
+                'packageMigrations' => PackageMigrations::incoming($newManifest['files'], PackageMigrations::applied()),
                 'signed'     => $this->publicKeys !== [] && $signature !== null,
             ];
         } catch (\Throwable $e) {
@@ -679,7 +680,12 @@ class UpgradeManager
      *                                       code no longer expects, and a 500 there takes the panel and
      *                                       the rollback with it.
      *
-     * @return array{success: bool, backup_dir?: string, updated?: int, added?: int, modified?: int, deleted?: int, error?: string}
+     * @param list<array{package: string, version: string, path: string}>|null $finalize
+     *        The migrations the release's `vendor/` brings, to run once it is in place. When given,
+     *        the update stops with the files written and the maintenance window held open until
+     *        Finalize::run() has run them — see Finalize.
+     *
+     * @return array{success: bool, backup_dir?: string, updated?: int, added?: int, modified?: int, deleted?: int, finalize?: bool, error?: string}
      */
     public function apply(
         string $extractDir,
@@ -689,6 +695,7 @@ class UpgradeManager
         ?array $roots = null,
         ?callable $beforeSwap = null,
         ?array $files = null,
+        ?array $finalize = null,
     ): array {
         $roots = $roots === null ? $this->scanDirs : ReleaseScope::normalize($roots);
         $files = ReleaseScope::normalize($files ?? []);
@@ -769,14 +776,33 @@ class UpgradeManager
             return ['success' => false, 'error' => ApplyLock::busyMessage()];
         }
 
+        if (Finalize::isPending()) {
+            $lock->release();
+
+            return ['success' => false, 'error' => Finalize::pendingMessage()];
+        }
+
         // Requests arriving mid-write would see a half-updated tree, so the
         // window is held open until the last root is in place.
         MaintenanceWindow::open('Applying ' . ($version ?? 'an update'));
 
+        $held = false;
+
         try {
-            return $this->writeRelease($extractDir, $diff, $inPlace, $swapping, $newManifest, $version, $roots, $beforeSwap, $files);
+            $result = $this->writeRelease($extractDir, $diff, $inPlace, $swapping, $newManifest, $version, $roots, $beforeSwap, $files);
+
+            if ($result['success'] && $finalize !== null && $finalize !== []) {
+                Finalize::begin($version, basename($result['backup_dir']), $finalize);
+                $held               = true;
+                $result['finalize'] = true;
+            }
+
+            return $result;
         } finally {
-            MaintenanceWindow::close();
+            if (! $held) {
+                MaintenanceWindow::close();
+            }
+
             $lock->release();
         }
     }
@@ -1262,7 +1288,15 @@ class UpgradeManager
         }
 
         try {
-            return $this->restoreLocked($name, $backupDir, $beforeRestore);
+            $result = $this->restoreLocked($name, $backupDir, $beforeRestore);
+
+            // The code is back to what the schema was built for.
+            if ($result['success'] && Finalize::isPending()) {
+                Finalize::clear();
+                MaintenanceWindow::close();
+            }
+
+            return $result;
         } finally {
             $lock->release();
         }
@@ -1416,6 +1450,23 @@ class UpgradeManager
     }
 
     /**
+     * Extends the batches a backup's update is recorded as having created.
+     * The first batch it recorded stays the starting point.
+     */
+    public function recordMigrations(string $name, int $before, int $after): void
+    {
+        if (! $this->isValidBackupName($name) || ! is_dir(WRITEPATH . 'backups/' . $name)) {
+            return;
+        }
+
+        $recorded = $this->backupMigrations($name);
+
+        $this->amendBackupManifest(WRITEPATH . 'backups/' . $name . '/', [
+            'migrations' => ['batch_before' => $recorded['batch_before'] ?? $before, 'batch_after' => $after],
+        ]);
+    }
+
+    /**
      * @param array<string, mixed> $extra
      */
     private function amendBackupManifest(string $backupDir, array $extra): void
@@ -1424,7 +1475,7 @@ class UpgradeManager
 
         file_put_contents(
             $backupDir . self::BACKUP_MANIFEST,
-            json_encode($meta + $extra, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n",
+            json_encode(array_merge($meta, $extra), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n",
         );
     }
 

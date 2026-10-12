@@ -36,6 +36,30 @@ having to port future changes yourself.
 </div>
 <?php endif; ?>
 
+<?php if (! empty($finalize)): ?>
+    <?php // The update is written; the site stays in maintenance until these
+          // have run, in this request — the first that loads the new vendor/. ?>
+<div class="alert alert-warning py-2 mb-3">
+    <div class="d-flex align-items-start gap-2">
+        <i class="bi bi-hourglass-split flex-shrink-0 mt-1"></i>
+        <div class="flex-grow-1">
+            <strong>v<?= esc((string) ($finalize['version'] ?? '')) ?> is written; its package migrations have not run.</strong>
+            <div class="small mt-1">
+                <?= esc(\Forgelabme\Ci4Updater\Libraries\PackageMigrations::describe($finalize['migrations'])) ?>.
+                The site answers 503 until they have.
+                If this page does not load, run <code>php spark updater:finalize</code>.
+            </div>
+        </div>
+        <form method="post" action="/admin/updates/finalize" class="flex-shrink-0">
+            <?= csrf_field() ?>
+            <button type="submit" class="btn btn-warning btn-sm">
+                <i class="bi bi-database-fill-gear me-1"></i>Run migrations
+            </button>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
+
 <?php if (! empty($serverProblem)): ?>
 <div class="alert alert-warning d-flex align-items-start gap-2 py-2 mb-3">
     <i class="bi bi-shield-exclamation flex-shrink-0 mt-1"></i>
@@ -142,6 +166,28 @@ having to port future changes yourself.
 
         <form method="post" action="/admin/updates/apply">
             <?= csrf_field() ?>
+            <?php if (! empty($upgradePending['packageMigrations'])): ?>
+                <?php // Only the new vendor/ can run these, so they wait for the next
+                      // request; the site is held in maintenance until then. ?>
+                <div class="alert alert-info py-2 small mb-3">
+                    <div class="form-check mb-0">
+                        <input class="form-check-input" type="checkbox" name="migrate_packages" value="1" id="migrate-packages" checked>
+                        <label class="form-check-label" for="migrate-packages">
+                            Run the migrations this release brings right after the update:
+                            <strong><?= esc(\Forgelabme\Ci4Updater\Libraries\PackageMigrations::describe($upgradePending['packageMigrations'])) ?></strong>
+                        </label>
+                    </div>
+                    <div class="mt-1">
+                        The site answers 503 from the moment the files are in place until you run them with one click.
+                        Unticked, the update finishes at once and the site runs on the old schema until
+                        <code>php spark migrate --all</code>.
+                        <?php if (empty($maintenanceFilter)): ?>
+                            <strong>The maintenance filter is not registered in this application</strong>, so nothing
+                            would answer 503: requests would reach the new code on the old schema.
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
             <button type="submit" class="btn btn-success"
                     onclick="return confirm('Apply update v<?= esc($upgradePending['version'], 'js') ?>?\nModified files will be backed up before being overwritten.')">
                 <i class="bi bi-play-fill me-1"></i>Apply update v<?= esc($upgradePending['version']) ?>

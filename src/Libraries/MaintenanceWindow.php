@@ -84,6 +84,33 @@ final class MaintenanceWindow
         return $left > 0 ? min($left, self::DEFAULT_TTL) : 60;
     }
 
+    /**
+     * Whether the application answers 503 while the window is open, i.e. the
+     * Maintenance filter runs before every request.
+     */
+    public static function filterRegistered(?object $filters = null): bool
+    {
+        $filters ??= function_exists('config') ? config('Filters') : null;
+
+        if (! is_object($filters)) {
+            return false;
+        }
+
+        $aliases = (array) ($filters->aliases ?? []);
+
+        foreach ([(array) ($filters->globals ?? []), (array) ($filters->required ?? [])] as $lists) {
+            foreach ((array) ($lists['before'] ?? []) as $key => $value) {
+                $alias = is_string($key) ? $key : $value;
+
+                if (is_string($alias) && ($aliases[$alias] ?? null) === \Forgelabme\Ci4Updater\Filters\Maintenance::class) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private static function configuredTtl(): int
     {
         if (function_exists('config')) {
